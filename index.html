@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BusLife</title>
+  <meta name="description" content="Live Helsinki public transport as a generative audio-visual installation.">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="style.css">
+  <!-- Libraries as classic scripts: they define the globals maplibregl, p5, mqtt and Tone. -->
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.11.13/lib/p5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mqtt@5.16.0/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tone@15.1.22/build/Tone.js"></script>
+</head>
+<body>
+  <!-- MapLibre draws the tiles here; the p5 canvas (#sketch) sits on top and lets the mouse through. -->
+  <div id="map"></div>
+  <div id="sketch"></div>
+  <!-- Always visible, also when H hides the panels, so visitors can always mute or bring the panels back. -->
+  <nav id="controls" aria-label="Controls">
+    <button id="mute-button" type="button"></button>
+    <button id="hud-button" type="button"></button>
+  </nav>
+  <button id="start" type="button">
+    <span class="title">BusLife</span>
+    <span class="hint">Click or press any key to start the sound</span>
+  </button>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

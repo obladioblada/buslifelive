@@ -1,0 +1,10 @@
+{
+  "name": "buslife-web",
+  "private": true,
+  "description": "BusLife in the browser: live Helsinki public transport as a generative audio-visual installation.",
+  "type": "module",
+  "scripts": {
+    "start": "python -m http.server 8765",
+    "test": "node --test"
+  }
+}
