@@ -4,17 +4,23 @@
 import { EventType } from '../hfp/events.js';
 import { LATE_AFTER_SECONDS, movingShare } from '../hfp/registry.js';
 import { LATE, forMode } from '../theme.js';
-import { card, delay, divider, fillColor, font, muted, PADDING, percent } from './overlay.js';
+import { card, delay, divider, fillColor, font, muted, PADDING, percent, title } from './overlay.js';
 
-export const STATS_WIDTH = 400;
-const HEADER = 18, GAP = 14, KPI = 44, BAR = 6, ROW = 21, ACTIVITY = 48, FOOTER = 14;
+export const STATS_WIDTH = 420;
+const HEADER = 16, GAP = 16, KPI = 50, BAR = 5, ROW = 23, ACTIVITY = 50, FOOTER = 14;
 /** Right edges of the table columns, relative to the content's left edge. */
-const COLUMNS = [150, 212, 262, 318, 364];
+const COLUMNS = [150, 214, 264, 324, 380];
+
+/** Draws the card with its top-left corner at (x, y); returns where it drew: { x, y, w, h }. */
+/** Height of the card for this snapshot (one table row per transport mode on the road). */
+export function statsHeight(city) {
+  return PADDING * 2 + HEADER + GAP + KPI + GAP + BAR + GAP + ROW * (city.byMode.size + 1)
+    + GAP + ACTIVITY + GAP + FOOTER;
+}
 
 export function drawStatsPanel(p, x, y, city, rates, messageRate, mapName) {
   const modes = city.byMode;
-  const height = PADDING * 2 + HEADER + GAP + KPI + GAP + BAR + GAP + ROW * (modes.size + 1)
-    + GAP + ACTIVITY + GAP + FOOTER;
+  const height = statsHeight(city);
 
   p.push();
   card(p, x, y, STATS_WIDTH, height);
@@ -23,10 +29,7 @@ export function drawStatsPanel(p, x, y, city, rates, messageRate, mapName) {
   let cy = y + PADDING;
 
   // Header: title (the time is on the big clock at the top centre).
-  font(p, 11);
-  p.textAlign(p.LEFT, p.TOP);
-  muted(p);
-  p.text('HSL  ·  LIVE TRAFFIC', left, cy);
+  title(p, 'Live traffic in Helsinki', left, cy);
   cy += HEADER + GAP;
 
   // Headline figures.
@@ -53,7 +56,7 @@ export function drawStatsPanel(p, x, y, city, rates, messageRate, mapName) {
   cy += BAR + GAP;
 
   // Per-mode table.
-  font(p, 11);
+  font(p, 10.5);
   muted(p);
   p.textAlign(p.LEFT, p.CENTER);
   p.text('MODE', left, cy + ROW / 2);
@@ -88,11 +91,11 @@ export function drawStatsPanel(p, x, y, city, rates, messageRate, mapName) {
   font(p, 11);
   muted(p);
   p.textAlign(p.LEFT, p.TOP);
-  p.text('EVERY SECOND', left, cy);
+  title(p, 'Every second', left, cy);
   cy += 18;
   activity(p, left, cy, rates.get(EventType.DEPARTED) ?? 0, 'departures');
   activity(p, left + tile, cy, rates.get(EventType.STOPPED) ?? 0, 'stops');
-  activity(p, left + tile * 2, cy, rates.get(EventType.TRAFFIC_LIGHT_REQUESTED) ?? 0, 'green requests');
+  activity(p, left + tile * 2, cy, rates.get(EventType.TRAFFIC_LIGHT_REQUESTED) ?? 0, 'green lights');
   activity(p, left + tile * 3, cy, rates.get(EventType.PASSED_STOP) ?? 0, 'stops skipped');
   cy += ACTIVITY - 18 + GAP;
 
@@ -100,27 +103,28 @@ export function drawStatsPanel(p, x, y, city, rates, messageRate, mapName) {
   font(p, 11);
   p.fill(255, 90);
   p.textAlign(p.LEFT, p.TOP);
-  p.text(`${Math.round(messageRate)} messages/s  ·  map: ${mapName}  ·  H: hide  ·  M: mute`, left, cy);
+  p.text(`${Math.round(messageRate)} messages/s  ·  map: ${mapName}`, left, cy);
   p.pop();
+  return { x, y, w: STATS_WIDTH, h: height };
 }
 
 function kpi(p, x, y, value, label, color = null) {
   p.textAlign(p.LEFT, p.TOP);
-  font(p, 24, true);
+  font(p, 32, 'light');
   if (color) fillColor(p, color, 255);
   else p.fill(255);
-  p.text(value, x, y - 4);
-  font(p, 11);
+  p.text(value, x, y - 8);
+  font(p, 11.5);
   muted(p);
-  p.text(label, x, y + 28);
+  p.text(label, x, y + 32);
 }
 
 function activity(p, x, y, perSecond, label) {
   p.textAlign(p.LEFT, p.TOP);
-  font(p, 15, true);
+  font(p, 20, 'light');
   p.fill(255);
-  p.text(perSecond < 10 ? perSecond.toFixed(1) : perSecond.toFixed(0), x, y - 2);
-  font(p, 11);
+  p.text(perSecond < 10 ? perSecond.toFixed(1) : perSecond.toFixed(0), x, y - 4);
+  font(p, 11.5);
   muted(p);
-  p.text(label, x, y + 18);
+  p.text(label, x, y + 20);
 }

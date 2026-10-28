@@ -6,10 +6,10 @@ import { Cue } from '../music/engine.js';
 import { WeatherKind } from '../weather/weather.js';
 import { LATE, forMode } from '../theme.js';
 import { drawWeatherIcon } from './weatherIcon.js';
-import { card, fillColor, font, muted, PADDING } from './overlay.js';
+import { card, fillColor, font, muted, PADDING, title } from './overlay.js';
 
-export const SOUND_WIDTH = 372;
-const HEADER = 18, GAP = 12, LIVE = 46, ROW = 24, SUBROW = 18;
+export const SOUND_WIDTH = 380;
+const HEADER = 16, GAP = 14, LIVE = 50, ROW = 25, SUBROW = 18, PROMPT = 30;
 const GLYPH_WIDTH = 54;
 /** How long a row stays lit after its sound plays. */
 const GLOW_MILLIS = 700;
@@ -27,15 +27,16 @@ const CONDITIONS = [
   ['Fog: everything echoes', WeatherKind.FOG, true, s => s.weather === WeatherKind.FOG],
 ];
 
-export function soundPanelHeight() {
-  return PADDING * 2 + HEADER + GAP + LIVE + GAP + ROW * 6 + SUBROW + ROW * CONDITIONS.length;
+/** Before the sound starts the panel has one more line: the invitation to start it. */
+export function soundPanelHeight(started = true) {
+  return PADDING * 2 + HEADER + GAP + LIVE + GAP + ROW * 6 + SUBROW + ROW * CONDITIONS.length + (started ? 0 : PROMPT);
 }
 
-/** Draws the card with its bottom-right corner at (right, bottom). */
+/** Draws the card with its bottom-right corner at (right, bottom); returns where it drew: { x, y, w, h }. */
 export function drawSoundPanel(p, right, bottom, music) {
   const now = Date.now();
   const status = music.status();
-  const height = soundPanelHeight();
+  const height = soundPanelHeight(status.started);
   const x = right - SOUND_WIDTH, top = bottom - height;
 
   p.push();
@@ -43,24 +44,22 @@ export function drawSoundPanel(p, right, bottom, music) {
   const left = x + PADDING, inner = right - PADDING;
   let y = top + PADDING;
 
+  title(p, 'How to listen', left, y);
+  // Only say something when the sound is not playing; the round buttons cover muting.
   font(p, 11);
-  p.textAlign(p.LEFT, p.TOP);
-  muted(p);
-  p.text('HOW TO LISTEN', left, y);
   p.textAlign(p.RIGHT, p.TOP);
-  if (!status.started) {
-    p.fill(255, 200, 80);
-    p.text('CLICK TO START THE SOUND', inner, y);
-  } else if (status.muted) {
-    p.fill(255, 200, 80);
-    p.text('MUTED  ·  press M', inner, y);
-  } else {
-    p.text('M: mute', inner, y);
-  }
+  p.fill(255, 200, 80);
+  // Left of the minimize control in the corner.
+  if (status.started && status.muted) p.text('Muted', inner - 26, y);
   y += HEADER + GAP;
 
-  if (status.started) live(p, left, inner, y, status);
+  // Tempo, key and groove are shown before the sound starts too: what the city is about to play.
+  live(p, left, inner, y, status);
   y += LIVE + GAP;
+  if (!status.started) {
+    startPrompt(p, left, inner, y);
+    y += PROMPT;
+  }
 
   // Doors: one dot per mode, each glowing when that mode's note plays.
   const doorsGlow = Math.max(...DOOR_CUES.map(cue => glow(music, cue, now)));
@@ -140,52 +139,70 @@ export function drawSoundPanel(p, right, bottom, music) {
   // Conditions: lit while they hold, dimmed otherwise.
   for (const [text, icon, day, active] of CONDITIONS) {
     const on = status.started && active(status);
+    // Inactive rows are drawn faint (the card is translucent, so covering them would leave dark patches).
+    const ctx = p.drawingContext;
+    ctx.save();
+    if (!on) ctx.globalAlpha = 0.35;
     drawWeatherIcon(p, icon, day, left + GLYPH_WIDTH / 2 - 6, y + ROW / 2, 20);
     caption(p, text, left, y, on ? 1 : 0);
-    if (!on) {
-      // Dim inactive rows by covering them with the card colour.
-      p.fill(12, 14, 20, 150);
-      p.rect(left - 4, y, inner - left + 8, ROW);
-    }
+    ctx.restore();
     y += ROW;
   }
   p.pop();
+  return { x, y: top, w: SOUND_WIDTH, h: height };
+}
+
+/** "▶ Click anywhere to start the sound", gently pulsing so it is noticed. */
+function startPrompt(p, left, inner, y) {
+  const pulse = 0.75 + 0.25 * Math.sin(Date.now() / 450);
+  p.noStroke();
+  p.fill(61, 139, 255, 46 * pulse);
+  p.rect(left - 6, y - 2, inner - left + 12, PROMPT - 6, 8);
+  // Play triangle.
+  p.fill(255, 255 * pulse);
+  const cy = y + (PROMPT - 6) / 2 - 2;
+  p.triangle(left + 4, cy - 6, left + 4, cy + 6, left + 14, cy);
+  font(p, 13);
+  p.textAlign(p.LEFT, p.CENTER);
+  p.fill(255, 235);
+  p.text('Click anywhere to start the sound', left + 24, cy);
 }
 
 /** Tempo, key and a groove meter. */
 function live(p, left, inner, y, status) {
   const column = (inner - left) / 3;
   p.textAlign(p.LEFT, p.TOP);
-  font(p, 22, true);
+  font(p, 30, 'light');
   p.fill(255);
   const bpm = String(Math.round(status.bpm));
-  p.text(bpm, left, y - 4);
+  p.text(bpm, left, y - 7);
   const bpmWidth = p.textWidth(bpm);
   font(p, 11);
   muted(p);
-  p.text('BPM', left + bpmWidth + 5, y + 8);
-  p.text('tempo', left, y + 28);
+  p.text('BPM', left + bpmWidth + 5, y + 10);
+  font(p, 11.5);
+  p.text('tempo', left, y + 31);
 
-  font(p, 22, true);
+  font(p, 30, 'light');
   p.fill(255);
-  p.text(status.minor ? 'D minor' : 'D major', left + column, y - 4);
-  font(p, 11);
+  p.text(status.minor ? 'D minor' : 'D major', left + column, y - 7);
+  font(p, 11.5);
   if (status.minor) {
     fillColor(p, LATE, 255);
-    p.text('running late', left + column, y + 28);
+    p.text('running late', left + column, y + 31);
   } else {
     muted(p);
-    p.text('on time', left + column, y + 28);
+    p.text('on time', left + column, y + 31);
   }
 
   const meterX = left + column * 2 + 10, meterW = inner - meterX;
   p.noStroke();
   p.fill(255, 30);
-  p.rect(meterX, y + 10, meterW, 6, 3);
+  p.rect(meterX, y + 12, meterW, 5, 2.5);
   p.fill(255, 220);
-  p.rect(meterX, y + 10, meterW * Math.max(0.03, status.energy), 6, 3);
+  p.rect(meterX, y + 12, meterW * Math.max(0.03, status.energy), 5, 2.5);
   muted(p);
-  p.text('groove', meterX, y + 28);
+  p.text('groove', meterX, y + 31);
 }
 
 function rowBackground(p, left, inner, y, glowAmount) {

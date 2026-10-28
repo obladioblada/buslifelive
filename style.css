@@ -1,8 +1,19 @@
+:root {
+  --glass: rgba(18, 20, 28, 0.55);
+  --glass-strong: rgba(18, 20, 28, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  --text: #fff;
+  --muted: rgba(255, 255, 255, 0.6);
+  --accent: #3d8bff;
+}
+
 html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
   background: #1b1c1f;
+  color: var(--text);
   font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
 
@@ -20,74 +31,339 @@ html, body {
   display: block;
 }
 
-/* Mute / hide-panels buttons, bottom centre, in the panel style. */
-#controls {
+/* Invisible handles over the canvas panels: drag a panel anywhere to move it. */
+.drag-handle {
   position: fixed;
-  left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 1px;
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  border-radius: 10px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.11);
+  cursor: grab;
+  touch-action: none;
+  border-radius: 16px;
 }
 
-#controls button {
+/* Invisible button over the "–" / "+" drawn in a panel's top-right corner. */
+.minimize-button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.minimize-button:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.minimize-button:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+.drag-handle.dragging {
+  cursor: grabbing;
+  box-shadow: 0 0 0 2px rgba(61, 139, 255, 0.55);
+}
+
+/* Frosted glass: translucent, blurred surfaces that let the map show through. */
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+}
+
+svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ------------------------------------------------------------------ round buttons, bottom centre */
+
+/* Each button is placed by src/ui/movableButtons.js (draggable, default pair at the bottom centre). */
+#controls {
+  display: contents;
+}
+
+.round {
+  position: fixed;
+  touch-action: none;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.round:hover {
+  transform: translateY(-2px);
+  background: var(--glass-strong);
+}
+
+.round:active {
+  transform: scale(0.95);
+}
+
+/* While being dragged. */
+.round.moving {
+  transform: scale(1.08);
+  cursor: grabbing;
+  box-shadow: 0 0 0 2px rgba(61, 139, 255, 0.55), var(--glass-shadow);
+}
+
+.round.moving::after {
+  display: none;
+}
+
+.round:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* Muted, or the settings menu open. */
+.round[aria-pressed="true"],
+.round[aria-expanded="true"] {
+  background: rgba(61, 139, 255, 0.28);
+  border-color: rgba(61, 139, 255, 0.55);
+}
+
+/* Tooltip with the keyboard shortcut. */
+.round[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translate(-50%, 4px);
+  padding: 5px 10px;
+  border-radius: 7px;
+  background: rgba(10, 12, 18, 0.9);
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.round[data-tip]:hover::after,
+.round[data-tip]:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* The open menu covers the tooltip's place. */
+.round[aria-expanded="true"]::after {
+  display: none;
+}
+
+/* ------------------------------------------------------------------ settings menu */
+
+/* Placed next to the Settings button by main.js (above it, or below near the top of the screen). */
+#settings-menu {
+  position: fixed;
+  width: 270px;
+  padding: 14px 8px 8px;
+  border-radius: 18px;
+  font-size: 14px;
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+#settings-menu[data-open="true"] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+#settings-menu .menu-title {
+  display: block;
+  padding: 0 12px 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#settings-menu .row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 16px;
-  border: 0;
-  background: rgba(12, 14, 20, 0.95);
-  color: #fff;
-  font: inherit;
-  font-size: 13px;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 12px;
   cursor: pointer;
 }
 
-#controls button:hover {
-  background: rgba(30, 33, 42, 0.97);
+#settings-menu .row:hover {
+  background: rgba(255, 255, 255, 0.06);
 }
 
-#controls kbd {
-  padding: 1px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 4px;
-  font: inherit;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.7);
+#settings-menu .row svg {
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
 }
 
-/* Browsers only allow sound after a user gesture, hence the start card. */
+#settings-menu .row span {
+  flex: 1;
+}
+
+/* Toggle switch drawn from a plain checkbox. */
+.switch {
+  appearance: none;
+  position: relative;
+  width: 38px;
+  height: 22px;
+  margin: 0;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.18);
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+
+.switch::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: transform 0.18s ease;
+}
+
+.switch:checked {
+  background: var(--accent);
+}
+
+.switch:checked::before {
+  transform: translateX(16px);
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ start screen */
+
 #start {
   position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 22px 30px;
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  border-radius: 10px;
-  background: rgba(12, 14, 20, 0.95);
-  color: #fff;
-  font: inherit;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(ellipse at center, rgba(10, 12, 18, 0.35) 0%, rgba(10, 12, 18, 0.82) 75%);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   cursor: pointer;
+  transition: opacity 0.5s ease;
 }
 
-#start .title {
-  font-size: 24px;
-  font-weight: 700;
-}
-
-#start .hint {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.55);
+#start.leaving {
+  opacity: 0;
+  pointer-events: none;
 }
 
 #start[hidden] {
   display: none;
+}
+
+.start-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.start-content h1 {
+  margin: 4px 0 0;
+  font-size: 64px;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+}
+
+.start-content p {
+  margin: 0 0 18px;
+  font-size: 17px;
+  color: var(--muted);
+}
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  background: var(--glass);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Pulsing red "on air" dot. */
+.live i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff3b5c;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 92, 0.6); }
+  50% { box-shadow: 0 0 0 6px rgba(255, 59, 92, 0); }
+}
+
+.play {
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.play:hover {
+  transform: scale(1.06);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.play svg {
+  width: 34px;
+  height: 34px;
+  margin-left: 4px;
+  fill: currentColor;
+  stroke: none;
+}
+
+.start-content .hint {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+@media (max-width: 600px) {
+  .start-content h1 { font-size: 46px; }
+  .start-content p { font-size: 15px; padding: 0 16px; }
 }

@@ -17,15 +17,51 @@
   <!-- MapLibre draws the tiles here; the p5 canvas (#sketch) sits on top and lets the mouse through. -->
   <div id="map"></div>
   <div id="sketch"></div>
-  <!-- Always visible, also when H hides the panels, so visitors can always mute or bring the panels back. -->
+  <!-- Invisible drag handles over each panel (see src/ui/layout.js): grab a panel anywhere to move it. -->
+  <div id="handles"></div>
+
+  <!-- Always visible, so visitors can always mute and choose which panels to show. -->
   <nav id="controls" aria-label="Controls">
-    <button id="mute-button" type="button"></button>
-    <button id="hud-button" type="button"></button>
+    <button id="mute-button" class="round glass" type="button"></button>
+    <button id="settings-button" class="round glass" type="button" aria-label="Settings" data-tip="Settings"
+            aria-expanded="false" aria-controls="settings-menu">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
+    </button>
   </nav>
-  <button id="start" type="button">
-    <span class="title">BusLife</span>
-    <span class="hint">Click or press any key to start the sound</span>
-  </button>
+
+  <!-- Every panel is optional; the choices are remembered in this browser. -->
+  <div id="settings-menu" class="glass" role="group" aria-label="Panels" data-open="false">
+    <span class="menu-title">Show on the map</span>
+    <label class="row">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>
+      <span>Clock and weather</span><input class="switch" type="checkbox" data-panel="clock">
+    </label>
+    <label class="row">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19v-7M12 19V5M18 19v-10"/></svg>
+      <span>Statistics</span><input class="switch" type="checkbox" data-panel="stats">
+    </label>
+    <label class="row">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/></svg>
+      <span>How to read the map</span><input class="switch" type="checkbox" data-panel="legend">
+    </label>
+    <label class="row">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17V6l10-2v11"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="15" r="2"/></svg>
+      <span>How to listen</span><input class="switch" type="checkbox" data-panel="sound">
+    </label>
+  </div>
+
+  <!-- Browsers only allow sound after a click or key press, so the page opens on this screen. -->
+  <div id="start">
+    <div class="start-content">
+      <span class="live"><i></i>LIVE · <span id="live-count">connecting…</span></span>
+      <h1>BusLife</h1>
+      <p>Helsinki's public transport, live, as light and music</p>
+      <button id="start-button" class="play" type="button" aria-label="Start">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg>
+      </button>
+      <span class="hint">Click anywhere or press any key</span>
+    </div>
+  </div>
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

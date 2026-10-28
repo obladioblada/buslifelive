@@ -32,10 +32,13 @@ Any static server works the same way (`npx serve`, VS Code Live Server, …).
 | `M` | mute / unmute the music |
 | `F` | toggle fullscreen |
 
-Mouse: drag to pan, scroll to zoom. The map stays within 10 km of central Helsinki.
+Mouse: drag to pan, scroll to zoom. The map stays inside the HSL service area (Kirkkonummi to Sipoo,
+the coast to Kerava), which also limits how far you can zoom out.
 
-The **Mute** and **Hide panels** buttons at the bottom centre do the same as `M` and `H`. They stay
-visible when the panels are hidden (as **Show panels**), and they work on touch screens.
+The **Mute** button at the bottom centre does the same as `M` and works on touch screens.
+
+**⚙ Settings** next to it chooses which panels to show: clock and weather (big Helsinki and local time,
+with local weather if the visitor allows location), statistics, how to read the map, and how to listen. All start hidden; each visitor's choice is remembered in their browser.
 
 ## Map style
 

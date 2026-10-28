@@ -11,10 +11,11 @@ Four layers are stacked on the page, bottom to top:
 ```
  ┌──────────────────────────────────────────────────────────────┐
  │ #start   "Click to start the sound" card (HTML, hidden later)│
- │ #controls Mute / Hide panels buttons (HTML, always visible)  │
+ │ #controls Mute / Settings buttons (HTML, always shown)       │
+ │ #settings-menu  one switch per panel (HTML)                  │
  │ #sketch  p5.js canvas, transparent, pointer-events: none     │
  │          dimming · sky glow · trails · vehicles · weather    │
- │          · stats panel · clock · weather card · legend       │
+ │          · stats panel · clock and weather · legend          │
  │          · sound panel                                       │
  │ #map     MapLibre GL: night tiles + day tiles (opacity)      │
  └──────────────────────────────────────────────────────────────┘
@@ -34,6 +35,7 @@ Four layers are stacked on the page, bottom to top:
 |---|---|---|
 | HSL High-frequency positioning | MQTT over WebSockets, `wss://mqtt.hsl.fi:443` | ~1,400 messages/s in the day: positions (`vp`) about once a second per vehicle, traffic light requests (`tlr`) and answers (`tla`), passed stops (`pas`) |
 | Open-Meteo | `fetch()` every 10 minutes | temperature, rain/snow, cloud cover, wind, visibility, WMO weather code |
+| Browser location (optional) | `navigator.geolocation`, asked on the first click or key press | the visitor's position, rounded to ~1 km and sent only to Open-Meteo for their local weather |
 | The sun | computed locally (`src/sky/sun.js`) | elevation and compass direction of the sun over Helsinki, sunrise and sunset |
 
 Nothing runs on a server. Both remote services allow browser connections from any website.
@@ -65,6 +67,7 @@ web/
     weather/
       weather.js        kinds, parser, intensity, compass, previews          ← Weather, WeatherKind, WeatherParser
       weatherClient.js  Open-Meteo polling                                   ← WeatherClient
+      localWeather.js   visitor's weather: browser location (rounded ~1 km) -> Open-Meteo (web only)
     music/
       harmony.js        key of D, I–V–vi–IV / i–VI–III–VII, degree -> pitch  ← music/Harmony
       groove.js         16-step drum patterns, bass riffs                    ← music/Groove
@@ -77,8 +80,7 @@ web/
       overlay.js        card style, fonts, number formatting                 ← ui/Overlay, Fonts
       statsPanel.js     top-left: live numbers                               ← ui/StatsPanel
       clock.js          top-centre: big Helsinki and local time              (web only)
-      weatherCard.js    top-right: weather                                   ← ui/WeatherCard
-      weatherIcon.js    shape-drawn icons                                    ← ui/WeatherIcon
+      weatherIcon.js    shape-drawn icons (clock card, sound panel)          ← ui/WeatherIcon
       legend.js         bottom-left: how to read the map                     ← ui/Legend
       soundPanel.js     bottom-right: how to listen                          ← ui/SoundPanel
       weatherLayer.js   rain, snow, clouds, fog, lightning                   ← ui/WeatherLayer
@@ -135,8 +137,9 @@ Follow one position message from bus 731 through the app:
 4. sky layer: deep-blue night tint, sunrise/sunset glow from the sun's side of the screen;
 5. all trails, then all vehicles;
 6. weather layer: clouds or fog, rain or snow, lightning, cold/warm tint;
-7. panels (unless hidden with `H`): stats, big Helsinki/local clock, weather card, legend, sound panel;
-   then the credit line. The Mute / Hide panels buttons are HTML above the canvas, so they are not part
+7. panels chosen in Settings (unless hidden with `H`): stats, big Helsinki/local clock with weather,
+   legend, sound panel;
+   then the credit line. The Mute and Settings buttons are HTML above the canvas, so they are not part
    of the frame and stay visible when the panels are hidden.
 
 ## 6. The music
@@ -183,6 +186,7 @@ The engine (`music/engine.js`) is a small band that the city plays along with.
 |---|---|---|
 | Map | Unfolding, tiles drawn by Processing | MapLibre underneath a transparent p5 canvas |
 | Zoom | 13 (256 px tiles) | 12 (MapLibre counts 512 px tiles); same view |
+| Panning | centre within 10 km of Helsinki | view inside the HSL service area (`maxBounds`) |
 | Feed | `tcp://mqtt.hsl.fi:1883` | `wss://mqtt.hsl.fi:443` (browsers cannot open TCP) |
 | Threads | MQTT thread, music thread, render thread | one page thread; Tone.js schedules audio ahead on the audio clock |
 | Instruments | General MIDI via Gervill (Windows GS sound set) | synthesized with Tone.js: same parts, different timbre |
@@ -226,6 +230,11 @@ These are the decisions in the order they were made while building the port.
      and every size fell back to 12 px. `ui/overlay.js` picks the first installed family with
      `document.fonts.check` instead, like Java's `Fonts` class.
    - p5's `arc()` defaults to pie mode, which would draw the radii of the late arc: it uses `OPEN`.
+   - A hand-made "pull the centre back within 10 km of Helsinki" (Unfolding's panning restriction) called
+     `easeTo()` from a `moveend` handler. Zooming out with the wheel moved the centre, the handler
+     re-entered MapLibre's render loop ("Attempting to run(), but is already running") and the page froze.
+     It is replaced by MapLibre's own `maxBounds` (the HSL service area), which also stops zooming out
+     past the region.
 
 ## 10. Extending it
 

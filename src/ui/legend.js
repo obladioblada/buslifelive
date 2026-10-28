@@ -2,9 +2,9 @@
 
 import { LATE, SIGNAL, forMode } from '../theme.js';
 import { STATS_WIDTH } from './statsPanel.js';
-import { card, fillColor, font, muted, PADDING } from './overlay.js';
+import { card, fillColor, font, PADDING, title } from './overlay.js';
 
-const ROW_HEIGHT = 26;
+const ROW_HEIGHT = 28;
 const GLYPH_WIDTH = 44;
 const DOT = 9;
 const MODES = ['bus', 'tram', 'metro', 'train', 'ferry'];
@@ -69,23 +69,29 @@ const ROWS = [
   }],
 ];
 
-/** Draws the card with its bottom-left corner at (x, bottom). */
+/** Draws the card with its bottom-left corner at (x, bottom); returns where it drew: { x, y, w, h }. */
+/** Size of the card: as wide as its longest caption, at least as wide as the statistics panel. */
+export function legendSize(p) {
+  p.push();
+  font(p, 13);
+  const textWidth = Math.max(...ROWS.map(([caption]) => p.textWidth(caption)));
+  p.pop();
+  return { w: Math.max(GLYPH_WIDTH + textWidth + PADDING * 2, STATS_WIDTH), h: PADDING * 2 + ROW_HEIGHT * (ROWS.length + 2) };
+}
+
 export function drawLegend(p, x, bottom) {
+  const { w: width, h: height } = legendSize(p);
   p.push();
   font(p, 13);
   p.textAlign(p.LEFT, p.CENTER);
-  const textWidth = Math.max(...ROWS.map(([caption]) => p.textWidth(caption)));
-  const width = Math.max(GLYPH_WIDTH + textWidth + PADDING * 2, STATS_WIDTH);
-  const height = PADDING * 2 + ROW_HEIGHT * (ROWS.length + 2);
   const top = bottom - height;
 
   card(p, x, top, width, height);
   const left = x + PADDING;
   let y = top + PADDING + ROW_HEIGHT / 2;
-  font(p, 11);
-  muted(p);
-  p.text('HOW TO READ THE MAP', left, y);
+  title(p, 'How to read the map', left, y - 6);
   font(p, 13);
+  p.textAlign(p.LEFT, p.CENTER);
   y += ROW_HEIGHT;
 
   // One coloured dot per transport mode.
@@ -110,4 +116,5 @@ export function drawLegend(p, x, bottom) {
     y += ROW_HEIGHT;
   }
   p.pop();
+  return { x, y: top, w: width, h: height };
 }

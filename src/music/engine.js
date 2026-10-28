@@ -87,11 +87,14 @@ export class MusicEngine {
     return this.muted;
   }
 
-  /** What the music is doing right now, for display. */
+  /**
+   * What the music is doing right now, for display. Before the sound starts it shows what the city would
+   * play (the mood is calculated from the live data either way).
+   */
   status() {
-    const m = this.barMood;
-    return { started: this.started, bpm: this.bpm, minor: m.minor, energy: m.energy, night: m.night,
-      weather: m.weather, muted: this.muted };
+    const m = this.started ? this.barMood : this.mood;
+    return { started: this.started, bpm: this.started ? this.bpm : m.bpm, minor: m.minor, energy: m.energy,
+      night: m.night, weather: m.weather, muted: this.muted };
   }
 
   /** Epoch millis when a cue last sounded, 0 if never. */
