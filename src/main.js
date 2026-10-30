@@ -4,7 +4,7 @@
 // -> crossfade the map by daylight -> on the transparent canvas draw dimming, sky glow, trails, vehicles,
 // weather and panels.
 
-import { VehicleRegistry, EMPTY_SNAPSHOT } from './hfp/registry.js';
+import { VehicleRegistry, EMPTY_SNAPSHOT, inArea } from './hfp/registry.js';
 import { HslMqttClient } from './hfp/mqttClient.js';
 import { basemapFromUrl, mapStyle, setDaylight } from './map/basemap.js';
 import { mapProjector } from './map/projection.js';
@@ -27,7 +27,17 @@ import { CARD } from './theme.js';
 
 const HELSINKI = { lat: 60.192059, lon: 24.945831 };
 /** Java's Unfolding zoom 13 on 256 px tiles = MapLibre zoom 12 (512 px tiles). */
-const ZOOM = 12, MIN_ZOOM = 8, MAX_ZOOM = 14;
+const ZOOM = 12, MAX_ZOOM = 14;
+/** Zoomed out no further than about the city: the music and statistics describe what is on screen. */
+const MIN_ZOOM = 11;
+/**
+ * Vehicles are received and kept for the view plus this share of a screen on every side, so panning
+ * shows them at once; drawing, statistics and music use what is actually in view.
+ */
+const VIEW_MARGIN = 0.5;
+/** Touch screens: "tap" wording; phones (touch + small screen) also get the lighter band. */
+const TOUCH = globalThis.matchMedia?.('(pointer: coarse)').matches ?? false;
+const PHONE = TOUCH && Math.min(screen.width, screen.height) < 900;
 /**
  * The HSL service area (Kirkkonummi to Sipoo, the coast to Kerava). MapLibre keeps the view inside it, so
  * you cannot pan away or zoom out past the whole region. (A hand-made "pull back to Helsinki" that called
@@ -36,11 +46,13 @@ const ZOOM = 12, MIN_ZOOM = 8, MAX_ZOOM = 14;
 const MAX_BOUNDS = [[24.3, 59.95], [25.6, 60.45]];
 const MAP_DIM_NIGHT = 110, MAP_DIM_DAY = 25;
 const SNAPSHOT_EVERY_MILLIS = 1000;
+/** The music hears about the view twice a second, and right after every pan or zoom. */
+const MOOD_EVERY_MILLIS = 500;
 /** Panels the Settings menu can show; the choice is remembered under this localStorage key. */
 const PANEL_NAMES = ['clock', 'stats', 'legend', 'sound'];
 const PANELS_KEY = 'buslife.panels';
 /** Titles shown on minimized panels. */
-const PANEL_TITLES = { stats: 'Live traffic', clock: 'Clock and weather', legend: 'How to read the map', sound: 'How to listen' };
+const PANEL_TITLES = { stats: 'Traffic in view', clock: 'Clock and weather', legend: 'How to read the map', sound: 'How to listen' };
 /** Mute button icons: speaker with sound waves, and speaker with a cross. */
 const SPEAKER_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6.5 9H3v6h3.5L11 19z"/>'
   + '<path d="M15.5 8.8a4.5 4.5 0 0 1 0 6.4M18.4 6a8.5 8.5 0 0 1 0 12"/></svg>';
@@ -56,7 +68,7 @@ const weatherClient = new WeatherClient();
 weatherClient.start();
 /** The visitor's weather; the browser asks for their location on the first click or key press. */
 const localWeather = new LocalWeather();
-const music = new MusicEngine();
+const music = new MusicEngine(globalThis.Tone, { light: PHONE });
 
 // ------------------------------------------------------------------ map
 
@@ -79,6 +91,31 @@ map.touchZoomRotate.disableRotation();
 map.on('load', () => map.resize());
 window.addEventListener('resize', () => map.resize());
 
+/** The map's current view as { south, west, north, east }. */
+function viewBounds() {
+  const b = map.getBounds();
+  return { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
+}
+
+/** An area grown by `margin` of its size on every side, kept inside the HSL region. */
+function grow(area, margin) {
+  const dLat = (area.north - area.south) * margin, dLon = (area.east - area.west) * margin;
+  return {
+    south: Math.max(MAX_BOUNDS[0][1], area.south - dLat), west: Math.max(MAX_BOUNDS[0][0], area.west - dLon),
+    north: Math.min(MAX_BOUNDS[1][1], area.north + dLat), east: Math.min(MAX_BOUNDS[1][0], area.east + dLon),
+  };
+}
+
+/** After every pan or zoom: receive only the new area, and forget vehicles that left it. */
+function refreshArea() {
+  const area = grow(viewBounds(), VIEW_MARGIN);
+  mqttClient.setArea(area);
+  registry.removeOutside(area);
+}
+refreshArea();
+map.on('load', refreshArea);
+map.on('moveend', refreshArea);
+
 // ------------------------------------------------------------------ sketch state
 
 const state = {
@@ -89,6 +126,7 @@ const state = {
   lastMessageCount: 0,
   lastSnapshotAt: 0,
   nextSnapshotAt: 0,
+  nextMoodAt: 0,
   /** The H key hides every panel at once without changing which ones are chosen. */
   showHud: true,
   /** Which panels are chosen in Settings; all start hidden for a clean map. */
@@ -105,7 +143,7 @@ function clockWeather() {
   const helsinki = weather();
   const local = localWeather.current;
   const messages = {
-    idle: 'Click to see your weather',
+    idle: TOUCH ? 'Tap to see your weather' : 'Click to see your weather',
     asking: 'Allow location to see your weather',
     denied: 'Location not shared',
     unavailable: 'Location not available',
@@ -122,6 +160,26 @@ function weather() {
   return state.weatherPreview ? previewWeather(state.weatherPreview) : weatherClient.current;
 }
 
+// The music follows a pan or zoom at once; a big one (a zoom level or more, or half a screen away)
+// makes it move on to its next section.
+let viewBefore = null;
+map.on('movestart', () => {
+  viewBefore = { zoom: map.getZoom(), center: map.getCenter(), view: viewBounds() };
+});
+map.on('moveend', () => {
+  state.nextMoodAt = 0;
+  if (!viewBefore) return;
+  const { zoom, center, view } = viewBefore;
+  const now = map.getCenter();
+  const moved = Math.max(Math.abs(now.lat - center.lat) / (view.north - view.south),
+    Math.abs(now.lng - center.lng) / (view.east - view.west));
+  if (Math.abs(map.getZoom() - zoom) >= 1 || moved > 0.5) music.viewChanged();
+  viewBefore = null;
+});
+
+/** The view and projection of the current frame, shared by the data and drawing steps. */
+const frame = { view: viewBounds(), project: null, width: 1, height: 1 };
+
 /** Where visitors dragged the panels; handles go in their own layer above the canvas. */
 const layout = new Layout(document.getElementById('handles'));
 
@@ -132,6 +190,8 @@ new p5(p => {
   let weatherLayer;
 
   p.setup = () => {
+    // Phones report 3x pixel density; 2x is sharp enough and a third of the drawing work.
+    p.pixelDensity(Math.min(2, window.devicePixelRatio || 1));
     p.createCanvas(p.windowWidth, p.windowHeight);
     weatherLayer = new WeatherLayer(p);
   };
@@ -139,6 +199,10 @@ new p5(p => {
   p.windowResized = () => p.resizeCanvas(p.windowWidth, p.windowHeight);
 
   p.draw = () => {
+    frame.view = viewBounds();
+    frame.project = mapProjector(map);
+    frame.width = p.width;
+    frame.height = p.height;
     updateData(p.millis());
     state.sky = state.skyPreview ? skyPreview(state.skyPreview) : skyNow();
     const daylight = state.sky.daylight;
@@ -270,30 +334,42 @@ function savePanels(panels) {
   }
 }
 
-// Browsers only allow sound after a user gesture: the first click or key press starts the music.
+// Browsers only allow sound after a completed tap, click or key press (phones ignore a mere touch-down).
+// Every such gesture tries to start the sound until it works; it also asks once for the location.
 const startCard = document.getElementById('start');
 const liveCount = document.getElementById('live-count');
-const startSound = () => {
-  // Fade the start screen out, then take it out of the page.
-  startCard.classList.add('leaving');
-  setTimeout(() => { startCard.hidden = true; }, 500);
+if (TOUCH) startCard.querySelector('.hint').textContent = 'Tap anywhere to start';
+const GESTURES = ['click', 'touchend', 'keydown'];
+const tryStart = () => {
+  if (music.started) return;
+  if (!startCard.classList.contains('leaving')) {
+    // Fade the start screen out, then take it out of the page.
+    startCard.classList.add('leaving');
+    setTimeout(() => { startCard.hidden = true; }, 500);
+  }
   localWeather.request();
-  music.start().catch(error => console.warn('Music unavailable:', error.message));
+  music.start()
+    .then(() => {
+      for (const type of GESTURES) window.removeEventListener(type, tryStart);
+      refreshControls();
+    })
+    .catch(error => console.warn('Sound not started yet (tap again):', error.message));
 };
-startCard.addEventListener('click', startSound, { once: true });
-window.addEventListener('keydown', startSound, { once: true });
-window.addEventListener('pointerdown', startSound, { once: true });
+for (const type of GESTURES) window.addEventListener(type, tryStart);
 
 // ------------------------------------------------------------------ per frame
 
 function updateData(now) {
+  // Events count, and play, only for vehicles in view; their screen position sets pan and pitch.
   for (const event of registry.drainEvents()) {
+    if (!inArea(event.vehicle, frame.view)) continue;
     state.eventCounts.set(event.type, (state.eventCounts.get(event.type) ?? 0) + 1);
-    music.onVehicleEvent(event);
+    const [x, y] = frame.project(...event.vehicle.displayLatLon(Date.now()));
+    music.onVehicleEvent(event, { pan: (x / frame.width) * 2 - 1, height: y / frame.height });
   }
   if (now >= state.nextSnapshotAt) {
-    state.city = registry.snapshot();
-    if (!startCard.hidden) liveCount.textContent = `${state.city.all.vehicles} vehicles on the road now`;
+    state.city = registry.snapshot(Date.now(), vehicle => inArea(vehicle, frame.view));
+    if (!startCard.hidden) liveCount.textContent = `${state.city.all.vehicles} vehicles in view right now`;
     const seconds = Math.max(now - state.lastSnapshotAt, 1) / 1000;
     state.eventRates = new Map([...state.eventCounts].map(([type, count]) => [type, count / seconds]));
     state.eventCounts.clear();
@@ -301,7 +377,11 @@ function updateData(now) {
     state.lastMessageCount = mqttClient.messageCount;
     state.lastSnapshotAt = now;
     state.nextSnapshotAt = now + SNAPSHOT_EVERY_MILLIS;
-    music.update(state.city, weather(), state.sky);
+  }
+  if (now >= state.nextMoodAt) {
+    const city = state.lastSnapshotAt === now ? state.city : registry.snapshot(Date.now(), vehicle => inArea(vehicle, frame.view));
+    music.update(city, weather(), state.sky, { zoom: map.getZoom() });
+    state.nextMoodAt = now + MOOD_EVERY_MILLIS;
   }
 }
 
@@ -311,9 +391,11 @@ function drawMap(p, daylight) {
   p.fill(0, p.lerp(MAP_DIM_NIGHT, MAP_DIM_DAY, daylight));
   p.rect(0, 0, p.width, p.height);
   drawSky(p, state.sky);
-  const project = mapProjector(map);
+  const project = frame.project;
   const now = Date.now();
-  const vehicles = [...registry.vehicles.values()];
+  // The registry also holds the margin around the view; draw only what is on (or just off) screen.
+  const onScreen = grow(frame.view, 0.1);
+  const vehicles = [...registry.vehicles.values()].filter(vehicle => inArea(vehicle, onScreen));
   drawTrails(p.drawingContext, vehicles, project, now);
   for (const vehicle of vehicles) vehicle.drawBody(p, project, now, daylight);
 }
@@ -326,20 +408,27 @@ function drawPanels(p) {
   const show = state.showHud ? state.panels : {};
   const W = p.width, H = p.height;
   const started = music.status().started;
-  // Exact sizes before drawing, so a panel is in the right place on its very first frame (opening or
-  // minimizing used to show one frame drawn with the other state's size: a visible jump).
+  // On narrow screens (phones) every panel is scaled to fit the width.
+  const ui = Math.min(1, (W - 24) / STATS_WIDTH);
+  // Exact sizes before drawing (unscaled), so a panel is in the right place on its very first frame.
   const full = {
     stats: { w: STATS_WIDTH, h: statsHeight(state.city) },
     clock: clockSize(p),
     legend: legendSize(p),
     sound: { w: SOUND_WIDTH, h: soundPanelHeight(started) },
   };
-  // Default top-left corners for a panel of a given size.
-  const corner = {
-    stats: () => ({ x: 16, y: 16 }),
-    clock: size => ({ x: (W - size.w) / 2, y: 16 }),
-    legend: size => ({ x: 16, y: H - 16 - size.h }),
-    sound: size => ({ x: W - 16 - size.w, y: H - 32 - size.h }),
+  const bottom = H - creditHeight(W) - 6;
+  // Scale and default top-left corner per panel. By default the clock is centred in the space the
+  // statistics panel leaves, shrinking if that space is narrow.
+  const placement = {
+    stats: size => ({ scale: ui, x: 16, y: 16 }),
+    clock: size => {
+      const left = show.stats && !layout.positions.stats && ui === 1 ? 16 + STATS_WIDTH : 0;
+      const scale = Math.min(ui, (W - left - 32) / size.w);
+      return { scale, x: left + (W - left - size.w * scale) / 2, y: 16 };
+    },
+    legend: size => ({ scale: ui, x: 16, y: H - 16 - size.h * ui }),
+    sound: size => ({ scale: ui, x: W - 16 - size.w * ui, y: bottom - size.h * ui }),
   };
 
   // Back to front: the panel moved last is drawn on top.
@@ -348,56 +437,66 @@ function drawPanels(p) {
       layout.placed(name, null);
       continue;
     }
-    const sizes = { full: full[name], bar: { w: barWidth(p, PANEL_TITLES[name]), h: BAR_HEIGHT } };
-    layout.setSizes(name, sizes);
+    const size = full[name];
+    const place = placement[name](size);
+    const scaled = { w: size.w * place.scale, h: size.h * place.scale };
+    const bar = { w: barWidth(p, PANEL_TITLES[name]), h: BAR_HEIGHT };
+    layout.setSizes(name, { full: scaled, bar });
     const hovered = layout.hovered === name;
 
     if (layout.isMinimized(name)) {
-      const pos = layout.position(name, sizes.bar.w, sizes.bar.h, W, H) ?? corner[name](sizes.bar);
+      const pos = layout.position(name, bar.w, bar.h, W, H) ?? barCorner(name, bar, W, H, bottom);
       layout.placed(name, drawBar(p, pos.x, pos.y, PANEL_TITLES[name], hovered));
       continue;
     }
 
-    const size = sizes.full;
-    const moved = layout.position(name, size.w, size.h, W, H);
-    const pos = moved ?? corner[name](size);
-    let rect;
+    const pos = layout.position(name, scaled.w, scaled.h, W, H) ?? place;
+    // Every panel is drawn at its top-left corner, scaled; its own anchor is set in local coordinates.
+    p.push();
+    p.translate(pos.x, pos.y);
+    p.scale(place.scale);
     switch (name) {
-      case 'stats':
-        rect = drawStatsPanel(p, pos.x, pos.y, state.city, state.eventRates, state.messageRate, basemap.name);
-        break;
-      case 'clock': {
-        // By default centred in the space the statistics panel leaves (scaling down if it is narrow);
-        // once moved, it keeps its own place.
-        const left = moved ? 0 : show.stats && !layout.positions.stats ? 16 + STATS_WIDTH : 0;
-        const centerX = moved ? pos.x + size.w / 2 : (left + W) / 2;
-        rect = drawClock(p, centerX, pos.y, left, W, clockWeather());
-        break;
-      }
-      case 'legend':
-        rect = drawLegend(p, pos.x, pos.y + size.h);
-        break;
-      case 'sound':
-        rect = drawSoundPanel(p, pos.x + size.w, pos.y + size.h, music);
-        break;
+      case 'stats': drawStatsPanel(p, 0, 0, state.city, state.eventRates, state.messageRate, basemap.name); break;
+      case 'clock': drawClock(p, size.w / 2, 0, 0, size.w + 32, clockWeather()); break;
+      case 'legend': drawLegend(p, 0, size.h); break;
+      case 'sound': drawSoundPanel(p, size.w, size.h, music); break;
     }
+    p.pop();
+    const rect = { x: pos.x, y: pos.y, w: scaled.w, h: scaled.h };
     drawMinimize(p, rect, hovered);
     layout.placed(name, rect);
   }
 }
 
+/** Default place of a minimized panel: the corner its panel lives in. */
+function barCorner(name, bar, W, H, bottom) {
+  return {
+    stats: { x: 16, y: 16 },
+    clock: { x: (W - bar.w) / 2, y: 16 },
+    legend: { x: 16, y: H - 16 - bar.h },
+    sound: { x: W - 16 - bar.w, y: bottom - bar.h },
+  }[name];
+}
+
+/** The credit line takes two lines on narrow screens. */
+function creditHeight(W) {
+  return W < 640 ? 40 : 22;
+}
+
 /** Required by the tile and weather providers' terms; keep it visible. */
 function drawAttribution(p) {
   p.push();
-  font(p, 12);
+  font(p, p.width < 640 ? 11 : 12);
   p.textAlign(p.RIGHT, p.BOTTOM);
-  const credit = `${basemap.attribution}  ·  ${WEATHER_ATTRIBUTION}`;
+  // One line, or two on narrow screens (phones).
+  const lines = p.width < 640 ? [basemap.attribution, WEATHER_ATTRIBUTION] : [`${basemap.attribution}  ·  ${WEATHER_ATTRIBUTION}`];
+  const lineHeight = 16;
   // A small dark pill keeps it readable on the night map, the day map and everything in between.
-  const w = p.textWidth(credit) + 12, h = 18;
+  const w = Math.max(...lines.map(line => p.textWidth(line))) + 12, h = lines.length * lineHeight + 2;
   p.noStroke();
   p.fill(CARD[0], CARD[1], CARD[2], 150);
   p.rect(p.width - w - 4, p.height - h - 4, w, h, 4);
   p.fill(255, 170);
-  p.text(credit, p.width - 10, p.height - 7);
+  lines.forEach((line, i) => p.text(line, p.width - 10, p.height - 7 - (lines.length - 1 - i) * lineHeight));
   p.pop();
 }

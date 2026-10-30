@@ -12,6 +12,10 @@ html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
+  /* The map handles pinch and pan itself; the page must not zoom or scroll. */
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
   background: #1b1c1f;
   color: var(--text);
   font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -171,7 +175,8 @@ svg {
 /* Placed next to the Settings button by main.js (above it, or below near the top of the screen). */
 #settings-menu {
   position: fixed;
-  width: 270px;
+  width: min(270px, calc(100vw - 24px));
+  box-sizing: border-box;
   padding: 14px 8px 8px;
   border-radius: 18px;
   font-size: 14px;

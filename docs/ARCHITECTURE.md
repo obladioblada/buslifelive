@@ -10,7 +10,7 @@ Four layers are stacked on the page, bottom to top:
 
 ```
  ┌──────────────────────────────────────────────────────────────┐
- │ #start   "Click to start the sound" card (HTML, hidden later)│
+ │ #start   "Click / tap to start the sound" card (HTML, hidden) │
  │ #controls Mute / Settings buttons (HTML, always shown)       │
  │ #settings-menu  one switch per panel (HTML)                  │
  │ #sketch  p5.js canvas, transparent, pointer-events: none     │
@@ -55,7 +55,8 @@ web/
       events.js         transport modes, event types                         ← TransportMode, VehicleEvent
       parser.js         topic + JSON -> position or signal                   ← HfpParser
       registry.js       live vehicles, event queue, city snapshot            ← VehicleRegistry, CitySnapshot
-      mqttClient.js     MQTT over wss, subscribe, prune silent vehicles      ← HslMqttClient
+      mqttClient.js     MQTT over wss, subscribe by area, prune silent       ← HslMqttClient
+      geohash.js        map area -> HFP topic geohash cells                  (new)
     map/
       vehicle.js        one vehicle: state machine + drawing                 ← HslVehicle
       trail.js          ring buffer of recent positions                      ← VehicleTrail
@@ -69,10 +70,11 @@ web/
       weatherClient.js  Open-Meteo polling                                   ← WeatherClient
       localWeather.js   visitor's weather: browser location (rounded ~1 km) -> Open-Meteo (web only)
     music/
-      harmony.js        key of D, I–V–vi–IV / i–VI–III–VII, degree -> pitch  ← music/Harmony
+      harmony.js        keys, four progressions per mode, degree -> pitch    ← music/Harmony
+      arrangement.js    32-bar song form, choices that change every cycle    (new)
       groove.js         16-step drum patterns, bass riffs                    ← music/Groove
       motif.js          2-bar looping melody                                 ← music/Motif
-      mood.js           city + weather + sky -> tempo, energy, key           ← music/Mood
+      mood.js           view + weather + sky -> tempo, energy, key, mix      ← music/Mood
       rng.js            seedable random (reproducible melodies in tests)     (java.util.Random)
       instruments.js    the synthesized band (Tone.js)                       (Gervill GM channels)
       engine.js         the 16th-note scheduler and city voices              ← music/MusicEngine, Cue
@@ -124,18 +126,19 @@ Follow one position message from bus 731 through the app:
    `vehicle.drawTrail` draws the fading line through the last 12 seconds of positions. All trails are
    drawn before any vehicle so a trail never covers another vehicle.
 6. **Play.** The music engine put the door event in its city queue. On the next eighth note it plays a
-   marimba note (bus; tram = vibraphone, train = strings, ferry = bells) on a tone of the current chord,
+   marimba note (bus; tram = vibraphone, train = whistle, ferry = bells) on a tone of the current chord,
    and the sound panel lights up the bus dot at the moment the note sounds.
 
 ## 5. The frame, in order
 
 `p.draw()` in `main.js`, roughly 60 times a second:
 
-1. drain vehicle events → counters and music engine; once a second: snapshot → stats panel and music mood;
+1. drain vehicle events → counters and music engine (vehicles in view only, with their screen position);
+   once a second: snapshot of the vehicles in view → stats panel and music mood;
 2. compute the sky (real sun, or a `T` preview) → set the map's day-layer opacity;
 3. `p.clear()`, then dim the map (stronger at night);
 4. sky layer: deep-blue night tint, sunrise/sunset glow from the sun's side of the screen;
-5. all trails, then all vehicles;
+5. all trails, then all vehicles (only those on screen);
 6. weather layer: clouds or fog, rain or snow, lightning, cold/warm tint;
 7. panels chosen in Settings (unless hidden with `H`): stats, big Helsinki/local clock with weather,
    legend, sound panel;
@@ -148,25 +151,58 @@ The engine (`music/engine.js`) is a small band that the city plays along with.
 
 - **Clock.** Tone.js calls `tick(time)` every sixteenth note with an exact future audio timestamp. All
   notes are scheduled at that time, so rhythm stays tight even when drawing stutters.
+- **What's in view.** The mood, the statistics and the door notes only count vehicles on screen, so
+  panning and zooming change the music. The registry keeps half a screen more on every side (that's what
+  MQTT delivers, see "Receiving only the view" below).
 - **Every bar** (16 steps) the engine reads the latest **mood** (`music/mood.js`):
-  - tempo 90–124 BPM from the share of vehicles moving (eased, never jumping);
-  - energy 0..1 from the number of vehicles on the road → how busy the drums and bass are;
+  - tempo 65–125 BPM from how fast the view moves: 60% average speed (0–40 km/h), 40% share moving.
+    The score is placed on the range of the views seen in the last 3 minutes (`TempoScale`), so the
+    slowest recent view plays at 65 and the fastest at 125: every pan or zoom is audible. The tempo
+    glides there every beat (about a bar; a leap of more than 10 BPM within a beat);
+  - tempo feel: below 85 BPM half-time drums and long held melody notes, above 100 sixteenth brushes,
+    the bouncy octave bass and extra melody notes (changes on bar lines, with a 3 BPM margin);
+  - energy 0..1 from the number of vehicles in view (about 220 is a busy screen) → how busy the drums
+    and bass are;
+  - zoom → zoomed in on a few streets the drums and pad step back and each door note is louder and longer;
+  - mix of modes in view → its own layer: tram vibraphone arpeggios, rail string chords, bus marimba
+    stabs or a ferry bell;
   - **minor key** when the average delay exceeds 2 minutes (back to major below 90 s);
   - night → sparse rim-shot groove, simple bass, softer, more reverb;
   - sunrise/sunset → louder, more chorused pad;
-  - weather → rain adds shaker and sixteenth hats, storms crashes and tom fills, snow switches the
+  - weather → rain adds shaker and sixteenth hats, storms distant rumbling toms, snow switches the
     melody to celesta, fog drowns everything in reverb.
-- **The band** (`music/instruments.js`), all synthesized: membrane kick and toms, noise snare/clap/shaker,
-  metal hats and crash, square rim, sine claves, FM triangle; sawtooth mono bass; detuned-saw pad through a
-  chorus; FM electric piano and celesta; FM marimba, vibraphone with tremolo, saw strings, FM bells.
-- **Harmony** (`music/harmony.js`): D major I–V–vi–IV (D A Bm G), or D minor i–VI–III–VII (Dm B♭ F C),
-  one chord per bar. Notes are written as scale degrees relative to the chord root, so the same pattern
+- **The band** (`music/instruments.js`), all synthesized in a cozy game style: a light kit (soft filtered
+  kick, finger snap, wooden tock, brushed hats, shaker, soft toms; no claps or crashes), a round triangle
+  bass, a warm filtered triangle pad playing seventh chords, leads (music box, kalimba, soft square with
+  vibrato; celesta in snow), a chime for effects, and the city voices (marimba, vibraphone, sine whistle,
+  bells). Everything goes through a warm master (low-pass, gentle compressor) and a short soft echo
+  (plus a small room off phones). Off-beat sixteenths swing a little; drum fills are marimba runs.
+- **Song form** (`music/arrangement.js`): a 16-bar cycle (about 35 s): intro (pad and bass), groove
+  (+ drums and the mode layer), full (+ melody), breakdown (drums and bass drop out), with drum fills into
+  full and breakdown. Every cycle picks a new drum pattern (stroll, lazy, hop, bounce), bass riff,
+  lead (music box, kalimba, soft square) and chord progression; every 32 bars the key may move (D, F, C, G).
+  A big change of view (a zoom level or more, or half a screen away; at most once per 4 bars) ends the
+  bar with a fill and jumps to the next section with fresh choices.
+- **Smooth, quick changes.** The view reaches the engine twice a second and right after every pan or
+  zoom. Energy and zoom are smoothed over about 2 s and read every beat; each part fades in and out over
+  about a beat instead of switching; extra drum hits (busy kicks, wooden tocks, ghost snaps, sixteenth brushes)
+  grow in with energy; the tempo moves half the way every beat and glides.
+- **Harmony** (`music/harmony.js`): four progressions per mode, e.g. I–V–vi–IV or vi–IV–I–V in major and
+  i–IV–VII–IV in the "running late" minor, which is Dorian (dreamy rather than sad), one chord per bar. Notes are written as scale degrees relative to the chord root, so the same pattern
   follows the progression and never clashes.
 - **Melody** (`music/motif.js`): a two-bar motif with chord tones on strong beats and small steps
   between notes; it loops (that's what makes it catchy), changes one weak-beat note every 4 bars and is
   regenerated every 16. It plays every other 8 bars, always when the city is busy, rarely at night.
 - **The city's voices.** Door openings are quantized to eighth notes (at most two per eighth, dropped if
-  older than 1.5 s), granted traffic lights play claves, skipped stops a triangle (at most one per beat).
+  older than 1.5 s), granted traffic lights play a two-note ding, skipped stops a quick upward sparkle (at most one per
+  beat). The melody keeps to the pentatonic scale between chord tones.
+  Each door note is panned to the vehicle's place on screen, an octave up in the top third and down in
+  the bottom third.
+- **Phones.** `new MusicEngine(Tone, { light: true })` builds the same band with an echo instead of a
+  convolution reverb, no chorus, plain oscillators and at most 6 notes per instrument.
+- **Starting.** Every click, tap (`touchend`, a completed gesture; phones ignore `pointerdown`) or key
+  press tries `Tone.start()` until the audio context is really running; a failed try is not remembered.
+  `navigator.audioSession.type = 'playback'` lets iPhones play with the silent switch on.
 - **Sound panel cues.** `mark(cue, time)` schedules, with `Tone.getDraw()`, the moment the sound really
   plays, and the panel lights the matching row for 700 ms.
 
@@ -221,8 +257,8 @@ These are the decisions in the order they were made while building the port.
 7. **Synthesized band.** Browsers have no General MIDI synth, so every GM program became a Tone.js patch;
    the patterns, harmony and city mapping are unchanged. (Sampled instruments, e.g. via `smplr`, are a
    drop-in alternative inside `instruments.js`.)
-8. **Browser rules.** Sound starts after a click or key press (start card), fullscreen is on `F`, and the
-   CARTO key moves to a URL parameter.
+8. **Browser rules.** Sound starts after a click, tap or key press (start card), fullscreen is on `F`, and
+   the CARTO key moves to a URL parameter.
 9. **Fixes found while testing in the browser:**
    - MapLibre measured its container too early and drew into a 400×300 canvas: it is now resized on load
      and on window resize.
@@ -235,6 +271,15 @@ These are the decisions in the order they were made while building the port.
      re-entered MapLibre's render loop ("Attempting to run(), but is already running") and the page froze.
      It is replaced by MapLibre's own `maxBounds` (the HSL service area), which also stops zooming out
      past the region.
+
+10. **Receiving only the view** (mobile and view-driven music). Zoom out is limited to 11 (about the
+    city). On every `moveend` the view plus half a screen on every side is covered with 0.1° HFP geohash
+    cells (`60;24/19/#` = 60.1–60.2 N, 24.9–25.0 E; whole degrees above 48 cells), the client subscribes to
+    the new cells and unsubscribes the old ones, and the registry drops vehicles outside the area.
+    Traffic light and passed-stop signals stay city-wide (they are few and only count for tracked
+    vehicles). That is roughly 100–300 messages/s instead of 1,400, which phones can handle.
+11. **Mobile layout.** Canvas density at most 2×, panels scaled to fit narrow screens, the credit line on
+    two lines, no page zoom or scroll (`touch-action: none`, `maximum-scale=1`): the map handles pinch.
 
 ## 10. Extending it
 

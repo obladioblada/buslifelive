@@ -12,6 +12,11 @@ const RHYTHMS = [
   [0, 3, 6, 8, 12, 16, 19, 22, 24],
   [0, 2, 4, 7, 10, 16, 18, 20, 26],
   [0, 4, 6, 10, 12, 16, 20, 22, 28],
+  [0, 6, 8, 14, 16, 22, 24, 28], // long, singing notes
+  [0, 1, 2, 4, 8, 16, 17, 18, 20, 24], // short bursts
+  [2, 4, 6, 12, 18, 20, 22, 28], // off the beat
+  [0, 2, 3, 4, 8, 10, 16, 20, 24], // hop-hop-hop, then an answer
+  [0, 3, 4, 7, 8, 12, 14, 24, 28], // bouncy question, short reply
 ];
 const CHORD_TONES = [0, 2, 4, 7];
 const PASSING = [1, 3, 5, 6];

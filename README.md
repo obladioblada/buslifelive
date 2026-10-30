@@ -17,8 +17,8 @@ ES modules need to be served over HTTP (opening `index.html` as a file does not 
 python -m http.server 8765
 ```
 
-Then open <http://localhost:8765>. Click (or press any key) to start the sound; browsers do not allow
-audio before a user gesture.
+Then open <http://localhost:8765>. Click, tap or press any key to start the sound; browsers do not allow
+audio before a user gesture. On an iPhone the sound plays even with the silent switch on (Safari 17+).
 
 Any static server works the same way (`npx serve`, VS Code Live Server, …).
 
@@ -32,8 +32,16 @@ Any static server works the same way (`npx serve`, VS Code Live Server, …).
 | `M` | mute / unmute the music |
 | `F` | toggle fullscreen |
 
-Mouse: drag to pan, scroll to zoom. The map stays inside the HSL service area (Kirkkonummi to Sipoo,
-the coast to Kerava), which also limits how far you can zoom out.
+Mouse: drag to pan, scroll to zoom. Touch: drag and pinch. The map stays inside the HSL service area
+(Kirkkonummi to Sipoo, the coast to Kerava) and zooms out no further than about the whole city.
+
+**What you see is what you hear.** Only the vehicles in view (plus half a screen around it, so panning
+shows them at once) are received, drawn and counted: the statistics, the tempo, the groove and the city
+voices all describe the part of the city on screen. Zoomed in on a few streets the band thins out and
+each vehicle's notes stand out, panned left or right to where it is and higher near the top of the screen.
+
+**On phones** the panels shrink to fit the screen and the band uses lighter instruments (an echo instead
+of a reverb, fewer voices) so it plays without crackling.
 
 The **Mute** button at the bottom centre does the same as `M` and works on touch screens.
 

@@ -1,144 +1,182 @@
-// The band, synthesized with Tone.js: every General MIDI voice of the Java version (Gervill) becomes a
-// small synth patch. Drums are built from membranes (kick, toms), noise (snare, clap, shaker) and metal
-// (hats, crash); tuned voices from FM and subtractive synths.
+// The band, synthesized with Tone.js, in a cozy game style: soft round sounds, nothing harsh. Drums are a
+// light kit (soft kick, finger snap, wooden tock, brushed hats, shaker, soft toms); tuned voices are a
+// round bass, a warm filtered pad, music box / kalimba / soft square leads, and the city voices
+// (marimba, vibraphone, whistle, bells) plus a chime for little game-like effects.
 //
-// Routing: each voice -> dry output, and (except the bass) -> a shared reverb send.
+// Routing: every voice -> a warm master (gentle low-pass and compressor), and (except bass and kick) -> a
+// shared ambience send: a short soft echo plus a small room (on phones only the echo). The city voices
+// each go through a stereo panner, so a note sounds from where its vehicle is on screen.
+//
+// light = true (phones): same band with cheaper parts: no reverb, no chorus, plainer oscillators and
+// fewer simultaneous notes, so small CPUs don't crackle.
 
 import { Drum } from './groove.js';
 
 /** Builds every voice. Call after Tone.start() (browsers need a user gesture). */
-export function createBand(Tone) {
-  const reverb = new Tone.Reverb({ decay: 3.2, wet: 1 }).toDestination();
-  const reverbSend = new Tone.Gain(0.3).connect(reverb);
+export function createBand(Tone, { light = false } = {}) {
+  // Warm master: rounds off the highs, evens out the peaks, a little quieter overall.
+  const master = new Tone.Gain(0.8);
+  if (light) {
+    master.chain(new Tone.Filter(7500, 'lowpass'), Tone.getDestination());
+  } else {
+    master.chain(new Tone.Filter(7500, 'lowpass'), new Tone.Compressor(-18, 2.5), Tone.getDestination());
+  }
+  const echo = new Tone.FeedbackDelay({ delayTime: 0.32, feedback: 0.28, wet: 1 });
+  const echoFilter = new Tone.Filter(2600, 'lowpass');
+  echo.chain(echoFilter, master);
+  const ambienceSend = new Tone.Gain(0.3).connect(echo);
+  if (!light) ambienceSend.connect(new Tone.Reverb({ decay: 1.8, wet: 1 }).connect(master));
+
   const out = node => {
-    node.toDestination();
-    node.connect(reverbSend);
+    node.connect(master);
+    node.connect(ambienceSend);
     return node;
   };
+  /** City voices are panned left/right by where the vehicle is on screen. */
+  const panned = () => out(new Tone.Panner(0));
+  const poly = (Voice, options) => {
+    const synth = new Tone.PolySynth(Voice, options);
+    synth.maxPolyphony = light ? 6 : 24;
+    return synth;
+  };
 
-  // ---- drums
-  const kick = new Tone.MembraneSynth({ pitchDecay: 0.045, octaves: 6, envelope: { attack: 0.001, decay: 0.42, sustain: 0, release: 0.1 } }).toDestination();
-  kick.volume.value = -4;
-  const snareFilter = out(new Tone.Filter(1400, 'highpass'));
-  const snare = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.17, sustain: 0 } }).connect(snareFilter);
-  snare.volume.value = -10;
-  const snareBody = out(new Tone.MembraneSynth({ pitchDecay: 0.02, octaves: 2, envelope: { attack: 0.001, decay: 0.09, sustain: 0 } }));
-  snareBody.volume.value = -14;
-  const clapFilter = out(new Tone.Filter({ frequency: 1500, type: 'bandpass', Q: 1.2 }));
-  const clap = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.002, decay: 0.13, sustain: 0 } }).connect(clapFilter);
-  clap.volume.value = -8;
-  const hat = out(new Tone.MetalSynth({ envelope: { attack: 0.001, decay: 0.05, release: 0.01 }, harmonicity: 5.1, modulationIndex: 32, resonance: 4200, octaves: 1.5 }));
-  hat.volume.value = -26;
-  const openHat = out(new Tone.MetalSynth({ envelope: { attack: 0.001, decay: 0.32, release: 0.05 }, harmonicity: 5.1, modulationIndex: 32, resonance: 4200, octaves: 1.5 }));
-  openHat.volume.value = -27;
-  const crash = out(new Tone.MetalSynth({ envelope: { attack: 0.001, decay: 1.6, release: 0.4 }, harmonicity: 4.1, modulationIndex: 40, resonance: 3000, octaves: 2 }));
-  crash.volume.value = -24;
-  const toms = out(new Tone.MembraneSynth({ pitchDecay: 0.08, octaves: 3, envelope: { attack: 0.001, decay: 0.35, sustain: 0 } }));
-  toms.volume.value = -8;
-  const rim = out(new Tone.Synth({ oscillator: { type: 'square' }, envelope: { attack: 0.001, decay: 0.03, sustain: 0, release: 0.01 } }));
-  rim.volume.value = -22;
-  const shakerFilter = out(new Tone.Filter(6500, 'highpass'));
-  const shaker = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.004, decay: 0.06, sustain: 0 } }).connect(shakerFilter);
-  shaker.volume.value = -18;
-  const claves = out(new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.02 } }));
-  claves.volume.value = -12;
-  const triangle = out(new Tone.FMSynth({ harmonicity: 3.5, modulationIndex: 2, envelope: { attack: 0.001, decay: 0.9, sustain: 0, release: 0.4 } }));
-  triangle.volume.value = -22;
+  // ---- drums: a light kit
+  const kickFilter = new Tone.Filter(900, 'lowpass').connect(master);
+  const kick = new Tone.MembraneSynth({ pitchDecay: 0.03, octaves: 4, envelope: { attack: 0.002, decay: 0.32, sustain: 0, release: 0.1 } }).connect(kickFilter);
+  kick.volume.value = -9;
+  // Snare = a soft finger snap.
+  const snapFilter = out(new Tone.Filter({ frequency: 2400, type: 'bandpass', Q: 0.9 }));
+  const snap = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.001, decay: 0.07, sustain: 0 } }).connect(snapFilter);
+  snap.volume.value = -13;
+  // Rim = a wooden tock.
+  const tock = out(new Tone.MembraneSynth({ pitchDecay: 0.008, octaves: 1.5, envelope: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.02 } }));
+  tock.volume.value = -16;
+  // Hats = brushes.
+  const brushFilter = out(new Tone.Filter(6500, 'highpass'));
+  const brush = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.004, decay: 0.035, sustain: 0 } }).connect(brushFilter);
+  brush.volume.value = -27;
+  const openBrush = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.01, decay: 0.16, sustain: 0 } }).connect(brushFilter);
+  openBrush.volume.value = -30;
+  const toms = out(new Tone.MembraneSynth({ pitchDecay: 0.06, octaves: 2, envelope: { attack: 0.002, decay: 0.3, sustain: 0 } }));
+  toms.volume.value = -15;
+  const shakerFilter = out(new Tone.Filter(5500, 'highpass'));
+  const shaker = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.008, decay: 0.05, sustain: 0 } }).connect(shakerFilter);
+  shaker.volume.value = -22;
 
   // ---- tuned voices
+  const bassFilter = new Tone.Filter(650, 'lowpass').connect(master);
   const bass = new Tone.MonoSynth({
-    oscillator: { type: 'sawtooth' },
-    filter: { Q: 2, type: 'lowpass', rolloff: -24 },
-    envelope: { attack: 0.005, decay: 0.25, sustain: 0.45, release: 0.08 },
-    filterEnvelope: { attack: 0.003, decay: 0.2, sustain: 0.25, release: 0.1, baseFrequency: 160, octaves: 2.6 },
-  }).toDestination();
-  bass.volume.value = -9;
+    oscillator: { type: 'triangle' },
+    filter: { Q: 1, type: 'lowpass', rolloff: -12 },
+    envelope: { attack: 0.006, decay: 0.28, sustain: 0.3, release: 0.12 },
+    filterEnvelope: { attack: 0.004, decay: 0.15, sustain: 0.4, release: 0.1, baseFrequency: 220, octaves: 1.8 },
+  }).connect(bassFilter);
+  bass.volume.value = -5;
 
-  const chorus = new Tone.Chorus(3.5, 2.5, 0.5).start();
-  const padFilter = out(new Tone.Filter(1300, 'lowpass'));
-  chorus.connect(padFilter);
-  const pad = new Tone.PolySynth(Tone.Synth, {
-    oscillator: { type: 'fatsawtooth', count: 3, spread: 28 },
-    envelope: { attack: 0.6, decay: 0.4, sustain: 0.65, release: 1.6 },
-  }).connect(chorus);
-  pad.volume.value = -24;
+  const padFilter = out(new Tone.Filter(900, 'lowpass'));
+  const chorus = light ? null : new Tone.Chorus(2.5, 2, 0.4).start().connect(padFilter);
+  const pad = poly(Tone.Synth, {
+    oscillator: light ? { type: 'triangle' } : { type: 'fattriangle', count: 3, spread: 18 },
+    envelope: { attack: 1.1, decay: 0.6, sustain: 0.7, release: 2.4 },
+  }).connect(chorus ?? padFilter);
+  pad.volume.value = -21;
 
-  // Electric piano (normal lead) and celesta (lead in snow).
-  const piano = out(new Tone.PolySynth(Tone.FMSynth, {
-    harmonicity: 3, modulationIndex: 9,
-    envelope: { attack: 0.002, decay: 1.1, sustain: 0.15, release: 0.9 },
-    modulationEnvelope: { attack: 0.002, decay: 0.35, sustain: 0, release: 0.2 },
+  // Leads, rotated by the arrangement: music box, kalimba, soft square; celesta when it snows.
+  const musicBox = out(poly(Tone.FMSynth, {
+    harmonicity: 4, modulationIndex: 1.4,
+    envelope: { attack: 0.001, decay: 1.3, sustain: 0, release: 1 },
+    modulationEnvelope: { attack: 0.001, decay: 0.25, sustain: 0, release: 0.2 },
   }));
-  piano.volume.value = -14;
-  const celesta = out(new Tone.PolySynth(Tone.FMSynth, {
-    harmonicity: 7, modulationIndex: 3.5,
+  musicBox.volume.value = -15;
+  const kalimba = out(poly(Tone.FMSynth, {
+    harmonicity: 5.4, modulationIndex: 2.5,
+    envelope: { attack: 0.001, decay: 0.9, sustain: 0, release: 0.7 },
+    modulationEnvelope: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.05 },
+  }));
+  kalimba.volume.value = -12;
+  const squareFilter = out(new Tone.Filter(1700, 'lowpass'));
+  const squareVibrato = light ? squareFilter : new Tone.Vibrato(5, 0.08).connect(squareFilter);
+  const softSquare = poly(Tone.Synth, {
+    oscillator: { type: 'square' },
+    envelope: { attack: 0.01, decay: 0.25, sustain: 0.3, release: 0.35 },
+  }).connect(squareVibrato);
+  softSquare.volume.value = -22;
+  const celesta = out(poly(Tone.FMSynth, {
+    harmonicity: 7, modulationIndex: 3,
     envelope: { attack: 0.001, decay: 0.9, sustain: 0, release: 0.8 },
     modulationEnvelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.2 },
   }));
   celesta.volume.value = -15;
+  // Chime: the little game-like effects (green light, skipped stop, section openings).
+  const chime = out(poly(Tone.FMSynth, {
+    harmonicity: 2, modulationIndex: 1.2,
+    envelope: { attack: 0.001, decay: 0.6, sustain: 0, release: 0.5 },
+    modulationEnvelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 },
+  }));
+  chime.volume.value = -17;
 
-  // City voices: bus marimba, tram vibraphone, train strings, ferry bells.
-  const marimba = out(new Tone.PolySynth(Tone.FMSynth, {
-    harmonicity: 4, modulationIndex: 1.6,
-    envelope: { attack: 0.001, decay: 0.32, sustain: 0, release: 0.2 },
-    modulationEnvelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.05 },
-  }));
-  marimba.volume.value = -11;
-  const tremolo = out(new Tone.Tremolo(5.5, 0.45).start());
-  const vibraphone = new Tone.PolySynth(Tone.FMSynth, {
-    harmonicity: 3.01, modulationIndex: 1.2,
-    envelope: { attack: 0.002, decay: 1.8, sustain: 0, release: 1.2 },
+  // City voices: bus marimba, tram vibraphone, train whistle, ferry bells, each with its own panner.
+  const pans = { marimba: panned(), vibraphone: panned(), strings: panned(), bells: panned() };
+  const marimba = poly(Tone.FMSynth, {
+    harmonicity: 4, modulationIndex: 1.1,
+    envelope: { attack: 0.001, decay: 0.35, sustain: 0, release: 0.25 },
+    modulationEnvelope: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.05 },
+  }).connect(pans.marimba);
+  marimba.volume.value = -13;
+  const tremolo = new Tone.Tremolo(4.5, 0.35).start().connect(pans.vibraphone);
+  const vibraphone = poly(Tone.FMSynth, {
+    harmonicity: 3.01, modulationIndex: 0.9,
+    envelope: { attack: 0.002, decay: 1.6, sustain: 0, release: 1.1 },
   }).connect(tremolo);
-  vibraphone.volume.value = -14;
-  const stringsFilter = out(new Tone.Filter(1900, 'lowpass'));
-  const strings = new Tone.PolySynth(Tone.Synth, {
-    oscillator: { type: 'fatsawtooth', count: 3, spread: 20 },
-    envelope: { attack: 0.25, decay: 0.3, sustain: 0.7, release: 1.2 },
-  }).connect(stringsFilter);
+  vibraphone.volume.value = -16;
+  // Trains and metro: a soft whistle (sine with a little vibrato) instead of strings.
+  const whistleVibrato = light ? pans.strings : new Tone.Vibrato(5.5, 0.06).connect(pans.strings);
+  const strings = poly(Tone.Synth, {
+    oscillator: { type: 'sine' },
+    envelope: { attack: 0.12, decay: 0.3, sustain: 0.6, release: 0.9 },
+  }).connect(whistleVibrato);
   strings.volume.value = -22;
-  const bells = out(new Tone.PolySynth(Tone.FMSynth, {
-    harmonicity: 5.07, modulationIndex: 14,
-    envelope: { attack: 0.001, decay: 2.4, sustain: 0, release: 1.8 },
-    modulationEnvelope: { attack: 0.001, decay: 1.5, sustain: 0, release: 1 },
-  }));
-  bells.volume.value = -20;
+  const bells = poly(Tone.FMSynth, {
+    harmonicity: 3.5, modulationIndex: 4,
+    envelope: { attack: 0.001, decay: 2.2, sustain: 0, release: 1.6 },
+    modulationEnvelope: { attack: 0.001, decay: 0.8, sustain: 0, release: 0.6 },
+  }).connect(pans.bells);
+  bells.volume.value = -21;
 
   const frequency = midi => Tone.Frequency(midi, 'midi').toFrequency();
-  const voices = { bass, pad, piano, celesta, marimba, vibraphone, strings, bells };
+  const voices = { bass, pad, musicBox, kalimba, softSquare, celesta, chime, marimba, vibraphone, strings, bells };
 
   return {
-    /** Plays a tuned note. velocity 0-127, duration in seconds. */
-    note(voice, midi, velocity, duration, time) {
+    /** Plays a tuned note. velocity 0-127, duration in seconds, pan -1 (left) .. 1 (right) for city voices. */
+    note(voice, midi, velocity, duration, time, pan = 0) {
+      pans[voice]?.pan.setValueAtTime(Math.max(-1, Math.min(1, pan)), time);
       voices[voice].triggerAttackRelease(frequency(midi), duration, time, velocity / 127);
     },
 
-    /** Plays a drum. velocity 0-127. */
+    /** Plays a drum. velocity 0-127. Claps, crashes and triangles map to the soft kit. */
     drum(drum, velocity, time) {
       const v = velocity / 127;
       switch (drum) {
-        case Drum.KICK: kick.triggerAttackRelease('C1', 0.3, time, v); break;
+        case Drum.KICK: kick.triggerAttackRelease('C1', 0.25, time, v); break;
         case Drum.SNARE:
-          snare.triggerAttackRelease(0.15, time, v);
-          snareBody.triggerAttackRelease(190, 0.08, time, v);
-          break;
-        case Drum.CLAP: clap.triggerAttackRelease(0.12, time, v); break;
-        case Drum.CLOSED_HAT: hat.triggerAttackRelease(420, 0.04, time, v); break;
-        case Drum.OPEN_HAT: openHat.triggerAttackRelease(420, 0.3, time, v); break;
-        case Drum.CRASH: crash.triggerAttackRelease(300, 1.4, time, v); break;
+        case Drum.CLAP: snap.triggerAttackRelease(0.06, time, v); break;
+        case Drum.RIM:
+        case Drum.CLAVES: tock.triggerAttackRelease('G5', 0.05, time, v); break;
+        case Drum.CLOSED_HAT: brush.triggerAttackRelease(0.03, time, v); break;
+        case Drum.OPEN_HAT:
+        case Drum.CRASH: openBrush.triggerAttackRelease(0.15, time, v); break;
         case Drum.LOW_TOM: toms.triggerAttackRelease('G2', 0.3, time, v); break;
         case Drum.MID_TOM: toms.triggerAttackRelease('C3', 0.3, time, v); break;
         case Drum.HIGH_TOM: toms.triggerAttackRelease('E3', 0.3, time, v); break;
-        case Drum.RIM: rim.triggerAttackRelease(1700, 0.03, time, v); break;
-        case Drum.SHAKER: shaker.triggerAttackRelease(0.05, time, v); break;
-        case Drum.CLAVES: claves.triggerAttackRelease(2500, 0.05, time, v); break;
-        case Drum.TRIANGLE: triangle.triggerAttackRelease(2400, 0.8, time, v); break;
+        case Drum.SHAKER: shaker.triggerAttackRelease(0.045, time, v); break;
+        case Drum.TRIANGLE: chime.triggerAttackRelease(frequency(96), 0.4, time, v); break;
       }
     },
 
-    /** reverb 0..127 (like the MIDI reverb send), chorus 0..127 for the pad. */
-    setColour(reverbAmount, chorusAmount, time) {
-      reverbSend.gain.setValueAtTime(0.6 * reverbAmount / 127, time);
-      chorus.wet.setValueAtTime(chorusAmount / 127, time);
+    /** ambience 0..127 (like the MIDI reverb send), chorus 0..127 for the pad. */
+    setColour(ambienceAmount, chorusAmount, time) {
+      ambienceSend.gain.setValueAtTime(0.6 * ambienceAmount / 127, time);
+      chorus?.wet.setValueAtTime(chorusAmount / 127, time);
     },
   };
 }

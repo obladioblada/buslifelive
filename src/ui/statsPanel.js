@@ -29,7 +29,7 @@ export function drawStatsPanel(p, x, y, city, rates, messageRate, mapName) {
   let cy = y + PADDING;
 
   // Header: title (the time is on the big clock at the top centre).
-  title(p, 'Live traffic in Helsinki', left, cy);
+  title(p, 'Live traffic in view', left, cy);
   cy += HEADER + GAP;
 
   // Headline figures.

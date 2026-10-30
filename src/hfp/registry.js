@@ -61,6 +61,16 @@ export class VehicleRegistry {
     this.trimDoorOpenings(now);
   }
 
+  /** Removes vehicles outside the area { south, west, north, east } (the visitor panned away). */
+  removeOutside(area, now = Date.now()) {
+    for (const [key, vehicle] of this.vehicles) {
+      if (!inArea(vehicle, area)) {
+        this.vehicles.delete(key);
+        this.publish(EventType.DISAPPEARED, vehicle, now);
+      }
+    }
+  }
+
   /** Returns and clears every event since the last call: [{ type, vehicle, timeMillis }]. */
   drainEvents() {
     const drained = this.events;
@@ -68,12 +78,17 @@ export class VehicleRegistry {
     return drained;
   }
 
-  snapshot(now = Date.now()) {
+  /**
+   * Figures for the vehicles that pass `include` (by default all; the app passes "in view").
+   * The door-opening rate stays the rate of the whole received area.
+   */
+  snapshot(now = Date.now(), include = () => true) {
     this.trimDoorOpenings(now);
     const all = new StatsAccumulator();
     const byMode = new Map();
     let late = 0;
     for (const vehicle of this.vehicles.values()) {
+      if (!include(vehicle)) continue;
       all.add(vehicle);
       if (!byMode.has(vehicle.mode)) byMode.set(vehicle.mode, new StatsAccumulator());
       byMode.get(vehicle.mode).add(vehicle);
@@ -106,6 +121,12 @@ export class VehicleRegistry {
     while (drop < this.doorOpenings.length && this.doorOpenings[drop] < cutoff) drop++;
     if (drop > 0) this.doorOpenings.splice(0, drop);
   }
+}
+
+/** Whether a vehicle's last known position is inside { south, west, north, east }. */
+export function inArea(vehicle, { south, west, north, east }) {
+  const { latitude, longitude } = vehicle.position;
+  return latitude >= south && latitude <= north && longitude >= west && longitude <= east;
 }
 
 class StatsAccumulator {

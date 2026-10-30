@@ -14,6 +14,7 @@ const GLYPH_WIDTH = 54;
 /** How long a row stays lit after its sound plays. */
 const GLOW_MILLIS = 700;
 const DOT = 9;
+const TAP = globalThis.matchMedia?.('(pointer: coarse)').matches ?? false;
 
 const DOOR_MODES = ['bus', 'tram', 'train', 'ferry'];
 const DOOR_CUES = [Cue.BUS_DOORS, Cue.TRAM_DOORS, Cue.TRAIN_DOORS, Cue.FERRY_DOORS];
@@ -22,7 +23,7 @@ const DOOR_CUES = [Cue.BUS_DOORS, Cue.TRAM_DOORS, Cue.TRAIN_DOORS, Cue.FERRY_DOO
 const CONDITIONS = [
   ['Night: softer and sparser', WeatherKind.CLEAR, false, s => s.night > 0.5],
   ['Rain: shaker and quick hi-hats', WeatherKind.RAIN, true, s => s.weather === WeatherKind.RAIN || s.weather === WeatherKind.DRIZZLE],
-  ['Storm: crashes and drum fills', WeatherKind.THUNDERSTORM, true, s => s.weather === WeatherKind.THUNDERSTORM],
+  ['Storm: distant rumbling drums', WeatherKind.THUNDERSTORM, true, s => s.weather === WeatherKind.THUNDERSTORM],
   ['Snow: the melody turns to celesta', WeatherKind.SNOW, true, s => s.weather === WeatherKind.SNOW || s.weather === WeatherKind.SLEET],
   ['Fog: everything echoes', WeatherKind.FOG, true, s => s.weather === WeatherKind.FOG],
 ];
@@ -80,10 +81,10 @@ export function drawSoundPanel(p, right, bottom, music) {
   font(p, 11);
   p.textAlign(p.LEFT, p.CENTER);
   muted(p);
-  p.text('bus marimba · tram vibes · train strings · ferry bells', left + GLYPH_WIDTH, y + SUBROW / 2 - 2);
+  p.text('bus marimba · tram vibes · train whistle · ferry bells', left + GLYPH_WIDTH, y + SUBROW / 2 - 2);
   y += SUBROW;
 
-  // Green light: claves, two crossed sticks.
+  // Green light: a two-note chime, drawn as two crossed sticks.
   const green = glow(music, Cue.GREEN_LIGHT, now);
   rowBackground(p, left, inner, y, green);
   p.stroke(255, 200 + 55 * green);
@@ -93,7 +94,7 @@ export function drawSoundPanel(p, right, bottom, music) {
   p.line(gx - 9, gy + 4, gx + 7, gy - 4);
   p.line(gx - 9, gy - 4, gx + 7, gy + 4);
   p.noStroke();
-  caption(p, 'Green light for a bus or tram: a wooden click', left, y, green);
+  caption(p, 'Green light for a bus or tram: a cheerful ding', left, y, green);
   y += ROW;
 
   // Skipped stop: triangle.
@@ -105,7 +106,7 @@ export function drawSoundPanel(p, right, bottom, music) {
   const tx = left + GLYPH_WIDTH / 2 - 6, ty = y + ROW / 2;
   p.triangle(tx, ty - 7, tx - 7, ty + 6, tx + 7, ty + 6);
   p.noStroke();
-  caption(p, 'Skipped stop, nobody waiting: a triangle ping', left, y, skipped);
+  caption(p, 'Skipped stop, nobody waiting: a little sparkle', left, y, skipped);
   y += ROW;
 
   // Tempo: a dot pulsing on every beat.
@@ -113,7 +114,7 @@ export function drawSoundPanel(p, right, bottom, music) {
   p.fill(255, 120 + 135 * beat);
   const pulse = 7 + 5 * beat;
   p.ellipse(left + GLYPH_WIDTH / 2 - 6, y + ROW / 2, pulse, pulse);
-  caption(p, 'Tempo: how much of the city is moving', left, y, 0);
+  caption(p, 'Tempo: how fast the vehicles in view move', left, y, 0);
   y += ROW;
 
   // Key: a note head and stem.
@@ -124,7 +125,7 @@ export function drawSoundPanel(p, right, bottom, music) {
   p.strokeWeight(1.5);
   p.line(nx + 4, ny, nx + 4, ny - 11);
   p.noStroke();
-  caption(p, 'Major key: on time  ·  minor: running late', left, y, 0);
+  caption(p, 'Major key: on time  ·  dreamy minor: running late', left, y, 0);
   y += ROW;
 
   // Drums: three bars filled by how busy the groove is.
@@ -165,7 +166,7 @@ function startPrompt(p, left, inner, y) {
   font(p, 13);
   p.textAlign(p.LEFT, p.CENTER);
   p.fill(255, 235);
-  p.text('Click anywhere to start the sound', left + 24, cy);
+  p.text(TAP ? 'Tap anywhere to start the sound' : 'Click anywhere to start the sound', left + 24, cy);
 }
 
 /** Tempo, key and a groove meter. */
@@ -185,7 +186,7 @@ function live(p, left, inner, y, status) {
 
   font(p, 30, 'light');
   p.fill(255);
-  p.text(status.minor ? 'D minor' : 'D major', left + column, y - 7);
+  p.text(status.keyName ?? (status.minor ? 'D minor' : 'D major'), left + column, y - 7);
   font(p, 11.5);
   if (status.minor) {
     fillColor(p, LATE, 255);
