@@ -10,10 +10,11 @@ import { TRAIL_MILLIS } from './vehicle.js';
 const FADE_STEPS = 6;
 const MAX_ALPHA = 170;
 
-export function drawTrails(ctx, vehicles, project, now) {
+/** @param trailMillis how far back trails reach (shorter on phones) */
+export function drawTrails(ctx, vehicles, project, now, trailMillis = TRAIL_MILLIS) {
   const paths = new Map(); // "mode|step" -> { path, color, step }
   const pathFor = (vehicle, age) => {
-    const step = Math.min(FADE_STEPS - 1, Math.floor(age / TRAIL_MILLIS * FADE_STEPS));
+    const step = Math.min(FADE_STEPS - 1, Math.floor(age / trailMillis * FADE_STEPS));
     const key = vehicle.mode + '|' + step;
     let entry = paths.get(key);
     if (!entry) {
@@ -24,7 +25,7 @@ export function drawTrails(ctx, vehicles, project, now) {
   };
 
   for (const vehicle of vehicles) {
-    const points = vehicle.trail.since(now - TRAIL_MILLIS);
+    const points = vehicle.trail.since(now - trailMillis);
     if (points.length === 0) continue;
     let previous = null;
     for (const point of points) {

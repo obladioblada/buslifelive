@@ -38,6 +38,12 @@ const VIEW_MARGIN = 0.5;
 /** Touch screens: "tap" wording; phones (touch + small screen) also get the lighter band. */
 const TOUCH = globalThis.matchMedia?.('(pointer: coarse)').matches ?? false;
 const PHONE = TOUCH && Math.min(screen.width, screen.height) < 900;
+/** Phones draw at 30 fps with shorter trails, so the page and the music keep up. */
+const PHONE_FPS = 30, PHONE_TRAIL_MILLIS = 6000;
+/** Events older than this (e.g. saved up while the page was hidden) are skipped, not replayed at once. */
+const EVENT_MAX_AGE_MILLIS = 2000;
+/** `?debug` shows fps, audio state and data rate on screen (for checking on a phone). */
+const DEBUG = new URLSearchParams(location.search).has('debug');
 /**
  * The HSL service area (Kirkkonummi to Sipoo, the coast to Kerava). MapLibre keeps the view inside it, so
  * you cannot pan away or zoom out past the whole region. (A hand-made "pull back to Helsinki" that called
@@ -190,15 +196,17 @@ new p5(p => {
   let weatherLayer;
 
   p.setup = () => {
-    // Phones report 3x pixel density; 2x is sharp enough and a third of the drawing work.
-    p.pixelDensity(Math.min(2, window.devicePixelRatio || 1));
+    // Phones report 3x pixel density; 1.5x is sharp enough there (2x elsewhere) and far less drawing work.
+    p.pixelDensity(Math.min(PHONE ? 1.5 : 2, window.devicePixelRatio || 1));
+    if (PHONE) p.frameRate(PHONE_FPS);
     p.createCanvas(p.windowWidth, p.windowHeight);
-    weatherLayer = new WeatherLayer(p);
+    weatherLayer = new WeatherLayer(p, { light: PHONE });
   };
 
   p.windowResized = () => p.resizeCanvas(p.windowWidth, p.windowHeight);
 
   p.draw = () => {
+    const drawStart = performance.now();
     frame.view = viewBounds();
     frame.project = mapProjector(map);
     frame.width = p.width;
@@ -213,6 +221,7 @@ new p5(p => {
     weatherLayer.draw(weather(), daylight);
     drawPanels(p);
     drawAttribution(p);
+    debug.frame(performance.now() - drawStart, p.frameRate());
   };
 
   // 'h' hides every overlay, 'w' cycles weather previews, 't' time-of-day previews, 'm' mutes,
@@ -298,6 +307,8 @@ function setMenuOpen(open) {
 
 function toggleMute() {
   music.toggleMute();
+  if (music.muted) letSleep();
+  else if (music.started) resumeSound();
   refreshControls();
 }
 
@@ -335,13 +346,18 @@ function savePanels(panels) {
 }
 
 // Browsers only allow sound after a completed tap, click or key press (phones ignore a mere touch-down).
-// Every such gesture tries to start the sound until it works; it also asks once for the location.
+// Every such gesture tries to start the sound until it works; it also asks once for the location. Later
+// gestures resume the sound if the phone suspended it.
 const startCard = document.getElementById('start');
 const liveCount = document.getElementById('live-count');
+const resumeButton = document.getElementById('resume-sound');
 if (TOUCH) startCard.querySelector('.hint').textContent = 'Tap anywhere to start';
 const GESTURES = ['click', 'touchend', 'keydown'];
-const tryStart = () => {
-  if (music.started) return;
+const onGesture = () => {
+  if (music.started) {
+    if (!music.running && !music.muted) resumeSound();
+    return;
+  }
   if (!startCard.classList.contains('leaving')) {
     // Fade the start screen out, then take it out of the page.
     startCard.classList.add('leaving');
@@ -350,19 +366,94 @@ const tryStart = () => {
   localWeather.request();
   music.start()
     .then(() => {
-      for (const type of GESTURES) window.removeEventListener(type, tryStart);
       refreshControls();
+      keepAwake();
     })
     .catch(error => console.warn('Sound not started yet (tap again):', error.message));
 };
-for (const type of GESTURES) window.addEventListener(type, tryStart);
+for (const type of GESTURES) window.addEventListener(type, onGesture);
+
+// Phones suspend web audio on screen lock, calls, notifications or switching apps, and don't resume it.
+// Check every second and on return to the page: resume, and if the phone wants a tap, ask for one.
+async function resumeSound() {
+  if (await music.resume()) keepAwake();
+  checkSound();
+}
+
+function checkSound() {
+  const visible = document.visibilityState === 'visible';
+  const stalled = music.started && !music.muted && !music.running && visible;
+  resumeButton.hidden = !stalled;
+  if (stalled && !checkSound.trying) {
+    // One automatic try at a time; a tap anywhere (or on the button) also resumes.
+    checkSound.trying = true;
+    music.resume().finally(() => {
+      checkSound.trying = false;
+      resumeButton.hidden = music.running || music.muted || document.visibilityState !== 'visible';
+    });
+  }
+  if (visible && music.running && !music.muted) keepAwake();
+}
+setInterval(checkSound, 1000);
+for (const type of ['pageshow', 'focus']) window.addEventListener(type, checkSound);
+document.addEventListener('visibilitychange', checkSound);
+
+// Keep the screen on while the music plays: an auto-locking phone would silence it. The browser drops
+// the lock whenever the page is hidden; it is taken again on return.
+let wakeLock = null;
+async function keepAwake() {
+  if (wakeLock || !navigator.wakeLock || document.visibilityState !== 'visible') return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch {
+    // Refused (battery saver, unsupported, not visible): the screen may lock as usual.
+  }
+}
+
+function letSleep() {
+  wakeLock?.release().catch(() => {});
+  wakeLock = null;
+}
+
+// On-screen diagnostics with ?debug: what the page and the sound are doing, readable on a phone.
+const debug = (() => {
+  const box = document.getElementById('debug');
+  if (!DEBUG) return { frame() {} };
+  box.hidden = false;
+  let drawMillis = 0, frames = 0, fps = 0, lastError = '', duplicates = 0;
+  window.addEventListener('error', event => { lastError = event.message; });
+  window.addEventListener('unhandledrejection', event => { lastError = String(event.reason?.message ?? event.reason); });
+  setInterval(() => {
+    const context = globalThis.Tone?.getContext();
+    const status = music.status();
+    box.textContent = [
+      `${fps.toFixed(0)} fps · draw ${frames ? (drawMillis / frames).toFixed(1) : '–'} ms/frame${PHONE ? ' · phone mode' : ''}`,
+      `audio ${context?.state ?? '–'} · ${music.started ? `${status.bpm.toFixed(0)} BPM` : 'not started'}${music.muted ? ' · muted' : ''} · look-ahead ${context?.lookAhead ?? '–'} s`,
+      `${Math.round(state.messageRate)} msg/s (+${mqttClient.duplicateCount - duplicates} duplicates skipped) · ${state.city.all.vehicles} in view · ${registry.vehicles.size} kept`,
+      `screen lock ${wakeLock ? 'held' : navigator.wakeLock ? 'off' : 'unsupported'}`,
+      lastError ? `error: ${lastError}` : 'no errors',
+    ].join('\n');
+    drawMillis = 0;
+    frames = 0;
+    duplicates = mqttClient.duplicateCount;
+  }, 1000);
+  return {
+    frame(millis, frameRate) {
+      drawMillis += millis;
+      frames++;
+      fps = frameRate;
+    },
+  };
+})();
 
 // ------------------------------------------------------------------ per frame
 
 function updateData(now) {
   // Events count, and play, only for vehicles in view; their screen position sets pan and pitch.
+  const fresh = Date.now() - EVENT_MAX_AGE_MILLIS;
   for (const event of registry.drainEvents()) {
-    if (!inArea(event.vehicle, frame.view)) continue;
+    if (event.timeMillis < fresh || !inArea(event.vehicle, frame.view)) continue;
     state.eventCounts.set(event.type, (state.eventCounts.get(event.type) ?? 0) + 1);
     const [x, y] = frame.project(...event.vehicle.displayLatLon(Date.now()));
     music.onVehicleEvent(event, { pan: (x / frame.width) * 2 - 1, height: y / frame.height });
@@ -396,7 +487,7 @@ function drawMap(p, daylight) {
   // The registry also holds the margin around the view; draw only what is on (or just off) screen.
   const onScreen = grow(frame.view, 0.1);
   const vehicles = [...registry.vehicles.values()].filter(vehicle => inArea(vehicle, onScreen));
-  drawTrails(p.drawingContext, vehicles, project, now);
+  drawTrails(p.drawingContext, vehicles, project, now, PHONE ? PHONE_TRAIL_MILLIS : undefined);
   for (const vehicle of vehicles) vehicle.drawBody(p, project, now, daylight);
 }
 

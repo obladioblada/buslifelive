@@ -25,6 +25,9 @@ export class HslMqttClient {
     this.registry = registry;
     this.mqtt = mqttLib;
     this.messageCount = 0;
+    /** HSL's broker sends every tram position 4 times (seen 2026-10-31); the copies are skipped. */
+    this.duplicateCount = 0;
+    this.lastPayload = new Map();
     this.decoder = new TextDecoder();
     /** Position topics currently subscribed (one per map cell). */
     this.positionTopics = new Set();
@@ -49,7 +52,11 @@ export class HslMqttClient {
     this.client.on('reconnect', () => console.info('MQTT reconnecting'));
     this.client.on('error', error => console.warn('MQTT error', error.message));
     this.client.on('message', (topic, payload) => this.onMessage(topic, payload));
-    this.pruneTimer = setInterval(() => this.registry.pruneStale(STALE_AFTER_MILLIS), 5000);
+    this.pruneTimer = setInterval(() => {
+      this.registry.pruneStale(STALE_AFTER_MILLIS);
+      // Topics change as vehicles move (next stop, location code): forget the old ones.
+      this.lastPayload.clear();
+    }, 5000);
   }
 
   /**
@@ -72,9 +79,14 @@ export class HslMqttClient {
   }
 
   onMessage(topic, payload) {
-    this.messageCount++;
     try {
       const text = this.decoder.decode(payload);
+      if (this.lastPayload.get(topic) === text) {
+        this.duplicateCount++;
+        return;
+      }
+      this.lastPayload.set(topic, text);
+      this.messageCount++;
       if (eventType(topic) === 'vp') {
         const position = parsePosition(topic, text);
         if (position) this.registry.accept(position);

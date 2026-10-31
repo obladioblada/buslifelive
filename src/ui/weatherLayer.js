@@ -15,8 +15,10 @@ const RAIN_WIND = 18;
 const SNOW_WIND = 9;
 
 export class WeatherLayer {
-  constructor(p) {
+  /** @param light phones: half the rain, snow, clouds and fog */
+  constructor(p, { light = false } = {}) {
     this.p = p;
+    this.share = light ? 0.5 : 1;
     this.lastMillis = 0;
     this.lightningAt = -10_000;
     this.nextLightningAt = 0;
@@ -97,7 +99,7 @@ export class WeatherLayer {
   clouds(weather, windX, windY, dt) {
     const p = this.p;
     const cover = weather.cloudCover / 100;
-    const count = Math.round(MAX_BLOBS * cover);
+    const count = Math.round(MAX_BLOBS * cover * this.share);
     this.moveBlobs(count, windX * CLOUD_DRIFT, windY * CLOUD_DRIFT, dt);
     // Overcast: a faint veil over everything, so the whole city feels greyer.
     p.noStroke();
@@ -112,11 +114,12 @@ export class WeatherLayer {
 
   fog(intensity, windX, windY, dt) {
     const p = this.p;
-    this.moveBlobs(MAX_BLOBS, windX * CLOUD_DRIFT * 0.5, windY * CLOUD_DRIFT * 0.5, dt);
+    const count = Math.round(MAX_BLOBS * this.share);
+    this.moveBlobs(count, windX * CLOUD_DRIFT * 0.5, windY * CLOUD_DRIFT * 0.5, dt);
     p.noStroke();
     p.fill(this.mix(170, 235), this.mix(175, 238), this.mix(185, 242), 25 + 40 * intensity);
     p.rect(0, 0, p.width, p.height);
-    for (const b of this.blobs) {
+    for (const b of this.blobs.slice(0, count)) {
       this.softBlob(b.x, b.y, b.size * 1.4, this.mix(190, 245), this.mix(195, 247), this.mix(205, 250), 30 + 30 * intensity);
     }
   }
@@ -124,6 +127,7 @@ export class WeatherLayer {
   rain(count, speed, length, alpha, windX, dt) {
     const p = this.p, ctx = p.drawingContext;
     const drift = windX * RAIN_WIND;
+    count = Math.round(count * this.share);
     ctx.save();
     ctx.lineWidth = 1.2;
     ctx.strokeStyle = `rgba(${this.mix(185, 60)},${this.mix(210, 85)},${this.mix(255, 135)},${alpha / 255})`;
@@ -149,6 +153,7 @@ export class WeatherLayer {
   snow(count, windX, dt) {
     const p = this.p, ctx = p.drawingContext;
     const t = p.millis() / 1000;
+    count = Math.round(count * this.share);
     ctx.save();
     ctx.fillStyle = `rgba(${this.mix(255, 120)},${this.mix(255, 135)},${this.mix(255, 160)},${225 / 255})`;
     ctx.beginPath();

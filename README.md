@@ -41,7 +41,12 @@ voices all describe the part of the city on screen. Zoomed in on a few streets t
 each vehicle's notes stand out, panned left or right to where it is and higher near the top of the screen.
 
 **On phones** the panels shrink to fit the screen and the band uses lighter instruments (an echo instead
-of a reverb, fewer voices) so it plays without crackling.
+of a reverb, fewer voices) so it plays without crackling. The page draws at 30 fps with shorter trails
+and less weather, keeps the screen awake while the music plays, and resumes the sound after a call,
+a screen lock or another app (or shows "Tap to resume the sound" when the phone insists on a tap).
+
+Add `?debug` to the address (e.g. `https://obladioblada.github.io/buslifelive/?debug`) to see fps,
+drawing time, audio state, messages per second and the last error on screen.
 
 The **Mute** button at the bottom centre does the same as `M` and works on touch screens.
 

@@ -280,6 +280,14 @@ These are the decisions in the order they were made while building the port.
     vehicles). That is roughly 100–300 messages/s instead of 1,400, which phones can handle.
 11. **Mobile layout.** Canvas density at most 2×, panels scaled to fit narrow screens, the credit line on
     two lines, no page zoom or scroll (`touch-action: none`, `maximum-scale=1`): the map handles pinch.
+12. **Phones that hang or go silent** (found with `?debug` and phone emulation). Phones suspend web
+    audio on screen lock, calls, notifications and app switches, and the app never resumed it: the
+    music stopped for good. Now `checkSound()` runs every second and on return to the page, resumes
+    the audio, and shows "Tap to resume the sound" if the phone wants a gesture (every tap also
+    resumes). A Screen Wake Lock keeps the screen on while the music plays. Phones draw at 30 fps at
+    1.5× density, with 6 s trails and half the weather particles, and Tone.js uses a 0.3 s look-ahead
+    with a `playback` latency hint so a busy page doesn't make notes late. Events older than 2 s
+    (saved up while the page was hidden) are skipped instead of replayed at once.
 
 ## 10. Extending it
 

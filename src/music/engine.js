@@ -45,6 +45,18 @@ const SWING = 0.28;
 /** Melodic fill on the last beat of a fill bar: chord tones going up. */
 const FILL_RUN = [0, 2, 4, 7];
 
+/**
+ * iPhones mute web audio with the silent switch unless the page asks to be a media player (Safari 16.4+).
+ * Set before starting or resuming the audio.
+ */
+function playbackSession() {
+  try {
+    if (globalThis.navigator?.audioSession) navigator.audioSession.type = 'playback';
+  } catch {
+    // Not supported: nothing to do.
+  }
+}
+
 export class MusicEngine {
   /** @param light lighter band for phones (see instruments.js) */
   constructor(Tone = globalThis.Tone, { light = false } = {}) {
@@ -95,13 +107,10 @@ export class MusicEngine {
 
   async startOnce() {
     const Tone = this.Tone;
-    // iPhones mute web audio with the silent switch unless the page asks to be a media player
-    // (Safari 16.4+). Set before resuming the audio, still inside the gesture.
-    try {
-      if (globalThis.navigator?.audioSession) navigator.audioSession.type = 'playback';
-    } catch {
-      // Not supported: nothing to do.
-    }
+    playbackSession();
+    // Phones: schedule further ahead with a bigger audio buffer, so a busy page doesn't make notes late
+    // or crackle. Must happen before any sound node exists.
+    if (this.light && !this.band) Tone.setContext(new Tone.Context({ latencyHint: 'playback', lookAhead: 0.3 }));
     await Tone.start();
     if (Tone.getContext().state !== 'running') throw new Error('audio is still locked by the browser');
     // A visitor may have pressed Mute before the sound started.
@@ -113,6 +122,26 @@ export class MusicEngine {
     transport.start('+0.1');
     this.started = true;
     console.info('Music started', this.light ? '(light band)' : '');
+  }
+
+  /** Whether sound is actually coming out (phones suspend audio on screen lock, calls, app switches). */
+  get running() {
+    return this.started && this.Tone.getContext().state === 'running';
+  }
+
+  /**
+   * Resumes audio the phone suspended. Returns whether it is running again; if not, call again from a
+   * tap (some phones only resume inside a gesture).
+   */
+  async resume() {
+    if (!this.started) return false;
+    playbackSession();
+    try {
+      await this.Tone.getContext().resume();
+    } catch {
+      // Refused outside a gesture: the caller asks for a tap.
+    }
+    return this.running;
   }
 
   /**
